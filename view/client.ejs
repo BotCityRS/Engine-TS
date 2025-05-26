@@ -321,7 +321,7 @@
         <% } %>
 
         (() => {
-            new Client(<%= nodeid %>, <%= lowmem %>, <%= members %>);
+            new Client(<%= nodeid %>, <%= lowmem %>, <%= members %>, window);
         })();
 
         loadSettings();
