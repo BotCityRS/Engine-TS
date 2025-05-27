@@ -16889,8 +16889,8 @@ class Client extends GameShell {
   imageTitlebutton = null;
   loginMessage0 = "";
   loginMessage1 = "";
-  usernameInput = "test";
-  passwordInput = "test";
+  usernameInput = "";
+  passwordInput = "";
   fontPlain11 = null;
   fontPlain12 = null;
   fontBold12 = null;
@@ -25690,4 +25690,4 @@ export {
   Client
 };
 
-//# debugId=FA3D9EFDD02F486C64756E2164756E21
+//# debugId=8E7E079FB431B10B64756E2164756E21
