@@ -16345,32 +16345,762 @@ class Wave {
   }
 }
 
+// src/bot/api/base/InterfaceItem.ts
+class InterfaceItem {
+  api;
+  interfaceId;
+  slot;
+  id;
+  count;
+  constructor(api, interfaceId, slot, id, count) {
+    this.api = api;
+    this.interfaceId = interfaceId;
+    this.slot = slot;
+    this.id = id;
+    this.count = count;
+  }
+}
+
+// src/bot/api/base/BankInterfaceItem.ts
+class BankInterfaceItem extends InterfaceItem {
+  constructor(api, interfaceId, slot, id, count) {
+    super(api, interfaceId, slot, id, count);
+  }
+  withdraw1() {
+    this.api.doAction(602, this.id, this.slot, this.interfaceId);
+  }
+  async withdraw(count) {
+    this.api.doAction(415, this.id, this.slot, this.interfaceId);
+    return new Promise((res, rej) => {
+      const timeout = new Date().getTime() + 4000;
+      const interval = setInterval(() => {
+        if (this.api.client.chatbackInputOpen) {
+          this.api.client.out.p1isaac(237 /* RESUME_P_COUNTDIALOG */);
+          this.api.client.out.p4(count);
+          this.api.client.chatbackInputOpen = false;
+          this.api.client.redrawChatback = true;
+          clearInterval(interval);
+          res(true);
+        } else if (new Date().getTime() >= timeout) {
+          clearInterval(interval);
+          res(false);
+        }
+      }, 50);
+    });
+  }
+  withdrawAll() {
+    this.api.doAction(892, this.id, this.slot, this.interfaceId);
+  }
+}
+
+// src/bot/api/base/ItemContainer.ts
+class ItemContainer {
+  api;
+  interfaceId;
+  InterfaceItemType;
+  constructor(api, interfaceId, InterfaceItemType) {
+    this.api = api;
+    this.interfaceId = interfaceId;
+    this.InterfaceItemType = InterfaceItemType;
+  }
+  createItem(...args) {
+    return new this.InterfaceItemType(...args);
+  }
+  getContainerSize() {
+    return this.api.interface.getInterface(this.interfaceId).invSlotObjId?.length ?? 0;
+  }
+  hasItem(id) {
+    return this.getItemById(id) != null;
+  }
+  hasItemAmount(id, count) {
+    return (this.getItemById(id)?.count ?? -1) >= count;
+  }
+  getItemBySlot(slotId) {
+    const inv = this.api.interface.getInterface(this.interfaceId);
+    const slotItem = inv.invSlotObjId?.[slotId];
+    const slotCount = inv.invSlotObjCount?.[slotId] ?? 0;
+    if (slotItem && slotItem > 0) {
+      const realSlotItem = ObjType.get(slotItem - 1);
+      const invItem = this.createItem(this.api, this.interfaceId, slotId, realSlotItem.id, slotCount);
+      return invItem;
+    }
+    return null;
+  }
+  getItemById(id) {
+    const size = this.getContainerSize();
+    for (let i = 0;i < size; ++i) {
+      let item = this.getItemBySlot(i);
+      if (item && item.id == id) {
+        return item;
+      }
+    }
+    return null;
+  }
+  isFull(spaceLeft = 0) {
+    const size = this.getContainerSize();
+    let freeReq = spaceLeft + 1;
+    for (let s = 0;s < size; ++s) {
+      if (!this.getItemBySlot(s)) {
+        freeReq--;
+      }
+      if (freeReq <= 0)
+        return false;
+    }
+    return true;
+  }
+}
+
+// src/bot/api/Bank.ts
+class Bank extends ItemContainer {
+  bankOpenState;
+  constructor(api) {
+    super(api, 5382, BankInterfaceItem);
+    this.bankOpenState = this.isOpen();
+    setInterval(() => {
+      if (this.isOpen() != this.bankOpenState) {
+        this.bankOpenState = !this.bankOpenState;
+        if (this.bankOpenState) {
+          this.onOpen();
+        } else {
+          this.onClose();
+        }
+      }
+    }, 100);
+  }
+  onOpen() {
+    this.api.inventory.interfaceId = 2006;
+  }
+  onClose() {
+    this.api.inventory.interfaceId = 3214;
+  }
+  isOpen() {
+    return this.api.client.sidebarInterfaceId == 2005;
+  }
+  open() {
+    this.api.worldObject.getNearestById([2213])?.interact(1);
+  }
+  close() {
+    this.api.doAction(947, -1, -1, 5384);
+  }
+  async withdraw(id, amount = 1) {
+    await this.getItemById(id)?.withdraw(amount);
+  }
+  depositAll() {
+    this.onOpen();
+    for (let s = 0;s < this.api.inventory.getContainerSize(); ++s)
+      this.api.inventory.getItemBySlot(s)?.depositAll();
+  }
+  depositAllExcept(ids) {
+    this.onOpen();
+    for (let s = 0;s < this.api.inventory.getContainerSize(); ++s) {
+      const item = this.api.inventory.getItemBySlot(s);
+      if (item && !ids.includes(item.id)) {
+        item?.depositAll();
+      }
+    }
+  }
+}
+
+// src/bot/api/base/GroundItemEntity.ts
+class GroundItemEntity {
+  api;
+  x;
+  z;
+  id;
+  count;
+  playerDist;
+  constructor(api, id, count, x, z) {
+    this.api = api;
+    this.id = id;
+    this.count = count;
+    this.x = x;
+    this.z = z;
+    this.playerDist = Number.MAX_SAFE_INTEGER;
+  }
+  pickUp() {
+    this.api.doAction(99, this.id, this.x, this.z);
+  }
+}
+
+// src/bot/api/Utility.ts
+class Utility {
+  constructor() {}
+  static getDistance(x1, z1, x2, z2) {
+    return Math.sqrt(Math.pow(Math.abs(x1 - x2), 2) + Math.pow(Math.abs(z1 - z2), 2));
+  }
+  static includes(arr, v) {
+    const v2 = Number(v);
+    if (isNaN(v2)) {
+      throw "Parse error " + v + " -> " + v2;
+    }
+    for (let i = 0;i < arr.length; ++i) {
+      const arri2 = Number(arr[i]);
+      if (isNaN(arri2)) {
+        throw "Parse error " + arr[i] + " -> " + arri2;
+      }
+      if (arri2 == v2) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+// src/bot/api/GroundItem.ts
+class GroundItem {
+  api;
+  constructor(api) {
+    this.api = api;
+  }
+  getGroundItems() {
+    let items = [];
+    const currentLevel = this.api.client.currentLevel;
+    const levelObjectStacks = this.api.client.objStacks;
+    for (let x = 0;x < levelObjectStacks[currentLevel].length; ++x) {
+      if (levelObjectStacks[currentLevel][x] != null) {
+        for (let z = 0;z < levelObjectStacks[currentLevel][x].length; ++z) {
+          const itemStack = levelObjectStacks[currentLevel][x][z];
+          if (itemStack != null) {
+            let item = itemStack.sentinel.next;
+            let loops = 10;
+            while (item.index != null && loops-- > 0) {
+              items.push(new GroundItemEntity(this.api, item.index, item.count, x, z));
+              item = item.next;
+            }
+          }
+        }
+      }
+    }
+    return items;
+  }
+  getGroundItemsById(ids) {
+    let items = [];
+    const currentLevel = this.api.client.currentLevel;
+    const levelObjectStacks = this.api.client.objStacks;
+    for (let x = 0;x < levelObjectStacks[currentLevel].length; ++x) {
+      if (levelObjectStacks[currentLevel][x] != null) {
+        for (let z = 0;z < levelObjectStacks[currentLevel][x].length; ++z) {
+          const itemStack = levelObjectStacks[currentLevel][x][z];
+          if (itemStack != null) {
+            let item = itemStack.sentinel.next;
+            let loops = 32;
+            while (item.index != null && loops-- > 0) {
+              if (Utility.includes(ids, item.index)) {
+                items.push(new GroundItemEntity(this.api, item.index, item.count, x, z));
+                item = item.next;
+              }
+            }
+          }
+        }
+      }
+    }
+    return items;
+  }
+  getNearestGroundItemById = (ids, maxDist) => {
+    if (!this.api.player) {
+      return null;
+    }
+    const groundItems = this.getGroundItemsById(ids);
+    if (groundItems.length == 0)
+      return null;
+    let nearestItem = null;
+    for (let i = 0;i < groundItems.length; ++i) {
+      let dist = Utility.getDistance(this.api.player.getLocalX(), this.api.player.getLocalZ(), groundItems[i].x, groundItems[i].z);
+      groundItems[i].playerDist = dist;
+      if (dist > maxDist) {
+        break;
+      }
+      if (!nearestItem || dist < nearestItem.playerDist) {
+        nearestItem = groundItems[i];
+      }
+    }
+    return nearestItem;
+  };
+}
+
+// src/bot/api/Interface.ts
+class Interface {
+  constructor() {}
+  getInterface(id) {
+    return Component.instances[id];
+  }
+}
+
+// src/bot/api/base/InvInterfaceItem.ts
+class InvInterfaceItem extends InterfaceItem {
+  bankOpenInterfaceId = 2006;
+  constructor(api, interfaceId, slot, id, count) {
+    super(api, interfaceId, slot, id, count);
+  }
+  interact(optionIndex) {
+    const optionIds = [405, 38, 422];
+    this.api.doAction(optionIds[optionIndex], this.id, this.slot, this.interfaceId);
+  }
+  deposit1() {
+    if (!this.api.bank.isOpen()) {
+      return;
+    }
+    this.api.doAction(602, this.id, this.slot, this.bankOpenInterfaceId);
+  }
+  async deposit(count) {
+    this.api.doAction(415, this.id, this.slot, this.bankOpenInterfaceId);
+    return new Promise((res, rej) => {
+      const timeout = new Date().getTime() + 4000;
+      const interval = setInterval(() => {
+        if (this.api.client.chatbackInputOpen) {
+          this.api.client.out.p1isaac(237 /* RESUME_P_COUNTDIALOG */);
+          this.api.client.out.p4(count);
+          this.api.client.chatbackInputOpen = false;
+          this.api.client.redrawChatback = true;
+          clearInterval(interval);
+          res(true);
+        } else if (new Date().getTime() >= timeout) {
+          clearInterval(interval);
+          res(false);
+        }
+      }, 50);
+    });
+  }
+  depositAll() {
+    this.api.doAction(892, this.id, this.slot, this.bankOpenInterfaceId);
+  }
+}
+
+// src/bot/api/Inventory.ts
+class Inventory extends ItemContainer {
+  constructor(api) {
+    super(api, 3214, InvInterfaceItem);
+  }
+}
+
+// src/bot/api/base/ClientNPCEntity.ts
+class ClientNPCEntity {
+  api;
+  uid;
+  id;
+  npc;
+  playerDist;
+  constructor(api, uid, npc) {
+    this.api = api;
+    this.uid = npc.uid = uid;
+    this.id = npc.id = npc.npcType?.id ?? -1;
+    this.npc = npc;
+    this.playerDist = Number.MAX_SAFE_INTEGER;
+  }
+  attack() {
+    this.api.doAction(542, this.uid, this.npc.x, this.npc.z);
+  }
+  interact(optionIndex) {
+    const optionIDs = [728, 6, 963];
+    this.api.doAction(optionIDs[optionIndex], this.uid, this.npc.x, this.npc.z);
+  }
+  examine() {
+    this.api.doAction(1607, this.uid, this.npc.x, this.npc.z);
+  }
+}
+
+// src/bot/api/NPC.ts
+class NPC {
+  api;
+  constructor(api) {
+    this.api = api;
+  }
+  getAll() {
+    if (!this.api.isLoggedIn()) {
+      return [];
+    }
+    const _npcs = this.api.client.npcs;
+    const npcs = [];
+    for (let i = 0;i < _npcs.length; ++i) {
+      let entity = _npcs[i];
+      if (entity != null) {
+        let clientNPC = new ClientNPCEntity(this.api, i, entity);
+        npcs.push(clientNPC);
+      }
+    }
+    return npcs;
+  }
+  getAllByIds(ids, includeInCombat = false) {
+    if (!this.api.isLoggedIn()) {
+      return [];
+    }
+    const npcs = this.getAll();
+    let orderedNPCs = [];
+    for (let i = 0;i < npcs.length; ++i) {
+      if (npcs[i] && Utility.includes(ids, npcs[i].id) && (!includeInCombat || npcs[i].npc.targetId == -1)) {
+        orderedNPCs.push(npcs[i]);
+      }
+    }
+    return orderedNPCs;
+  }
+  getNPCByIdsNearest(ids, includeInCombat = false) {
+    if (!this.api.isLoggedIn()) {
+      return null;
+    }
+    const npcs = this.getAllByIds(ids, includeInCombat);
+    let nearestNPC = null;
+    for (let i = 0;i < npcs.length; ++i) {
+      let dist = Utility.getDistance(this.api.player.x, this.api.player.z, npcs[i].x, npcs[i].z);
+      npcs[i].playerDist = dist;
+      if (!nearestNPC || dist < nearestNPC.playerDist) {
+        nearestNPC = npcs[i];
+      }
+    }
+    return nearestNPC;
+  }
+}
+
+// src/bot/api/Player.ts
+class Player {
+  api;
+  lastCombatUpdate;
+  isInCombatScore;
+  constructor(api) {
+    this.api = api;
+    this.lastCombatUpdate = 0;
+    this.isInCombatScore = 0;
+  }
+  getLocalX() {
+    return this.api.client.localPlayer?.routeFlagX[0] ?? -1;
+  }
+  getLocalZ() {
+    return this.api.client.localPlayer?.routeFlagZ[0] ?? -1;
+  }
+  enableRun() {
+    this.api.doAction(960, 0, 0, 153);
+  }
+  hasTarget() {
+    return this.api.client.localPlayer?.targetId != -1;
+  }
+  isInCombat() {
+    if (!this.api.client.localPlayer)
+      return;
+    const now = new Date().getTime();
+    if (this.isInCombatScore != this.api.client.localPlayer.combatCycle) {
+      this.lastCombatUpdate = now;
+      this.isInCombatScore = this.api.client.localPlayer.combatCycle;
+    }
+    if (now >= this.lastCombatUpdate + 2800) {
+      return false;
+    }
+    return true;
+  }
+  isMoving() {
+    return (this.api.client.localPlayer?.routeLength ?? 0) > 0;
+  }
+  isAnimating() {
+    return (this.api.client.localPlayer?.primarySeqId ?? -1) >= 0;
+  }
+  changeAttackStyle(index) {
+    const scim_ids = [2429, 2432, 2431, 2430];
+    const sword_ids = [2282, 2285, 2284, 2283];
+    this.api.doAction(960, 0, 0, sword_ids[index]);
+  }
+}
+
+// src/bot/api/Timer.ts
+class Timer {
+  static systemTimer;
+  static TIMER_LOGGING_IN = "TIMER_LOGGING_IN";
+  static TIMER_LOGIN_WAIT = "TIMER_LOGIN_WAIT";
+  static TIMER_SETUP_ACCOUNT_ON_LOGIN = "TIMER_SETUP_ACCOUNT_ON_LOGIN";
+  timers;
+  timerNames;
+  constructor() {
+    this.timers = [];
+    this.timerNames = [];
+  }
+  static SystemTimer() {
+    if (this.systemTimer) {
+      throw "There should not be a system timer already. Do not create another.";
+    }
+    this.systemTimer = new Timer;
+    this.systemTimer.defineTimer("TIMER_LOGGING_IN", 0);
+    this.systemTimer.defineTimer("TIMER_LOGIN_WAIT", 1);
+    this.systemTimer.defineTimer("TIMER_SETUP_ACCOUNT_ON_LOGIN", 2);
+    return this.systemTimer;
+  }
+  defineTimer(name, id) {
+    if (this.timerNames[id]) {
+      throw "Timer already exists as " + this.timerNames[id];
+    }
+    this.timerNames[id] = name;
+  }
+  isTimerDefined(id) {
+    return this.timerNames[id];
+  }
+  setTimer(id, ms) {
+    if (!this.isTimerDefined(id)) {
+      throw "Undefined timer ID " + id;
+    }
+    this.timers[id] = new Date().getTime() + ms;
+  }
+  hasTimer(id) {
+    if (!this.isTimerDefined(id)) {
+      throw "Undefined timer ID " + id;
+    }
+    const now = new Date().getTime();
+    return (this.timers[id] || 0) > now;
+  }
+  clearTimer(id) {
+    if (!this.isTimerDefined(id)) {
+      throw "Undefined timer ID " + id;
+    }
+    return this.timers[id] = 0;
+  }
+}
+
+// src/bot/api/base/WorldObjectEntity.ts
+class WorldObjectEntity {
+  api;
+  x;
+  z;
+  id;
+  typecode;
+  locType;
+  playerDist;
+  constructor(api, id, x, z, typecode, locType) {
+    this.api = api;
+    this.id = id;
+    this.x = x;
+    this.z = z;
+    this.typecode = typecode;
+    this.locType = locType;
+    this.playerDist = Utility.getDistance(api.player.getLocalX(), api.player.getLocalZ(), x, z);
+  }
+  interact(optionIndex) {
+    const optionIDs = [285, 504, 364, 581, 1501];
+    this.api.doAction(optionIDs[optionIndex], this.typecode, this.x, this.z);
+  }
+  examine() {
+    this.api.doAction(1175, this.typecode, this.x, this.z);
+  }
+}
+
+// src/bot/api/WorldObject.ts
+class WorldObject {
+  api;
+  constructor(api) {
+    this.api = api;
+  }
+  getAll() {
+    let worldObjectEntities = [];
+    if (!this.api.isLoggedIn()) {
+      return [];
+    }
+    const currentLevel = this.api.client.currentLevel;
+    const lvlTiles = this.api.client.scene?.levelTiles[currentLevel];
+    for (let x = 0;x < 104; ++x) {
+      for (let z = 0;z < 104; ++z) {
+        const tileLocs = lvlTiles?.[x][z]?.locs ?? [];
+        tileLocs.forEach((loc) => {
+          if (loc) {
+            const locX = loc.typecode & 127;
+            const locZ = loc.typecode >> 7 & 127;
+            const entityType = loc.typecode >> 29 & 3;
+            const typeId = loc.typecode >> 14 & 32767;
+            worldObjectEntities.push(new WorldObjectEntity(this.api, typeId, locX, locZ, loc.typecode, LocType.get(typeId)));
+          }
+        });
+      }
+    }
+    return worldObjectEntities;
+  }
+  getById(ids) {
+    let worldObjects = this.getAll();
+    let sorted = [];
+    worldObjects.forEach((wo) => {
+      if (ids.includes(wo.id)) {
+        sorted.push(wo);
+      }
+    });
+    return sorted;
+  }
+  getNearestById(ids, maxDistance = 200) {
+    let worldObjects = this.getById(ids);
+    let closest = null;
+    worldObjects.forEach((wo) => {
+      if (wo.playerDist <= maxDistance && (!closest || wo.playerDist < closest.playerDist)) {
+        closest = wo;
+      }
+    });
+    return closest;
+  }
+}
+
+// src/bot/api/BotAPI.ts
+class BotAPI {
+  bot;
+  client;
+  util;
+  bank;
+  inventory;
+  player;
+  npc;
+  worldObject;
+  groundItem;
+  interface;
+  systemTimer;
+  constructor(bot) {
+    this.bot = bot;
+    this.client = bot.client;
+    this.util = new Utility;
+    this.interface = new Interface;
+    this.bank = new Bank(this);
+    this.player = new Player(this);
+    this.inventory = new Inventory(this);
+    this.npc = new NPC(this);
+    this.worldObject = new WorldObject(this);
+    this.groundItem = new GroundItem(this);
+    this.systemTimer = Timer.SystemTimer();
+  }
+  setMenuOptions(menuOption, p1, p2, p3) {
+    this.client.menuAction[0] = menuOption;
+    this.client.menuParamA[0] = p1;
+    this.client.menuParamB[0] = p2;
+    this.client.menuParamC[0] = p3;
+  }
+  async doAction(menuOption, p1, p2, p3) {
+    this.setMenuOptions(menuOption, p1, p2, p3);
+    this.client.useMenuOption(0);
+  }
+  isLoggedIn() {
+    return this.client.ingame;
+  }
+  tryLogin(onSuccess) {
+    const TIMER_LOGGING_IN = 0;
+    const TIMER_LOGIN_WAIT = 1;
+    const TIMER_SETUP_ACCOUNT_ON_LOGIN = 2;
+    if (!this.isLoggedIn() && !this.systemTimer.hasTimer(TIMER_LOGGING_IN)) {
+      this.systemTimer.setTimer(TIMER_LOGGING_IN, 6000);
+      this.systemTimer.setTimer(TIMER_LOGIN_WAIT, 3000);
+      return;
+    }
+    if (this.systemTimer.hasTimer(TIMER_LOGGING_IN)) {
+      if (!this.isLoggedIn() && !this.systemTimer.hasTimer(TIMER_LOGIN_WAIT)) {
+        this.client.tryLogin(this.client.usernameInput, this.client.passwordInput, true);
+        this.systemTimer.setTimer(TIMER_LOGIN_WAIT, 3001);
+      }
+      if (this.isLoggedIn() && !this.systemTimer.hasTimer(TIMER_SETUP_ACCOUNT_ON_LOGIN)) {
+        onSuccess();
+        this.systemTimer.setTimer(TIMER_SETUP_ACCOUNT_ON_LOGIN, 3000);
+      }
+      return;
+    }
+  }
+}
+
 // src/bot/scripts/BotScript.ts
 class BotScript {
   start(bot) {}
 }
 
-// src/bot/scripts/AutoKiller.ts
+// src/bot/scripts/AutoFisher.ts
 var TIMER_GAME_INTERACT = 0;
+var TIMER_ENABLE_RUN = 1;
+
+class AutoFisher extends BotScript {
+  timer;
+  constructor(attackStyle, npcIDs, groundItemIDs, buryBones) {
+    super();
+    this.timer = new Timer;
+    this.timer.defineTimer("TIMER_GAME_INTERACT", TIMER_GAME_INTERACT);
+    this.timer.defineTimer("TIMER_ENABLE_RUN", TIMER_ENABLE_RUN);
+  }
+  static htmlSetup(base) {
+    const elemAttackStyle = document.createElement("input");
+    elemAttackStyle.id = "elemAttackStyle";
+    elemAttackStyle.placeholder = "Attack Style: 0 = atk, 1 = str, 2 = shared, 3 = def";
+    elemAttackStyle.value = "0";
+    const elemNPCIDs = document.createElement("input");
+    elemNPCIDs.id = "elemNPCIDs";
+    elemNPCIDs.placeholder = "NPC IDs comma seperated";
+    elemNPCIDs.value = "41";
+    const elemGroundItemIDs = document.createElement("input");
+    elemGroundItemIDs.id = "elemGroundItemIDs";
+    elemGroundItemIDs.placeholder = "Pickup Item IDs comma seperated";
+    elemGroundItemIDs.value = "314,526";
+    const elemBuryLabel = document.createElement("div");
+    elemBuryLabel.innerText = "Bury Bones?";
+    const elemBuryBones = document.createElement("input");
+    elemBuryBones.id = "elemBuryBones";
+    elemBuryBones.type = "checkbox";
+    elemBuryBones.checked = true;
+    base.appendChild(elemAttackStyle);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(elemNPCIDs);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(elemGroundItemIDs);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(elemBuryLabel);
+    base.appendChild(elemBuryBones);
+  }
+  static buildFromHtml(base) {
+    const elemAttackStyle = document.getElementById("elemAttackStyle")?.value;
+    const elemNPCIDs = document.getElementById("elemNPCIDs")?.value.split(",");
+    const elemGroundItemIDs = document.getElementById("elemGroundItemIDs")?.value.split(",");
+    const elemBuryBones = document.getElementById("elemBuryBones")?.checked;
+    return new AutoFisher(elemAttackStyle, elemNPCIDs, elemGroundItemIDs, elemBuryBones);
+  }
+  start(bot) {
+    let api = bot.api;
+    if (this.timer.hasTimer(TIMER_GAME_INTERACT)) {
+      return;
+    }
+    api.tryLogin(() => {
+      api.player.enableRun();
+      this.timer.setTimer(TIMER_ENABLE_RUN, 90000 + Math.random() * 60000);
+    });
+    if (!this.timer.hasTimer(TIMER_ENABLE_RUN)) {
+      api.player.enableRun();
+      this.timer.setTimer(TIMER_ENABLE_RUN, 90000 + Math.random() * 60000);
+    }
+    if (api.player.isMoving()) {
+      this.timer.setTimer(TIMER_GAME_INTERACT, 300);
+      return;
+    }
+    if (!api.inventory.hasItem(303) || api.inventory.isFull()) {
+      this.timer.setTimer(TIMER_GAME_INTERACT, 2000);
+      if (!api.bank.isOpen()) {
+        api.bank.open();
+      } else {
+        api.bank.depositAllExcept([303]);
+        if (!api.inventory.hasItem(303)) {
+          api.bank.withdraw(303);
+        }
+      }
+    } else if (!api.player.isAnimating()) {
+      this.timer.setTimer(TIMER_GAME_INTERACT, 2000);
+      api.npc.getNPCByIdsNearest([327])?.interact(0);
+    }
+  }
+}
+
+// src/bot/scripts/AutoKiller.ts
+var TIMER_GAME_INTERACT2 = 0;
 var TIMER_RECENT_TARGET = 1;
-var TIMER_LOGGING_IN = 2;
-var TIMER_SETUP_ACCOUNT_ON_LOGIN = 3;
-var TIMER_LOGIN_WAIT = 4;
-var TIMER_RECENT_MOVING = 5;
-var TIMER_ENABLE_RUN = 6;
-var TIMER_LONG_WAIT_TARGET = 7;
+var TIMER_RECENT_MOVING = 2;
+var TIMER_ENABLE_RUN2 = 3;
+var TIMER_LONG_WAIT_TARGET = 4;
 
 class AutoKiller extends BotScript {
   attackStyle;
   npcIDs;
   groundItemIDs;
   buryBones;
+  timer;
   constructor(attackStyle, npcIDs, groundItemIDs, buryBones) {
     super();
     this.attackStyle = attackStyle;
     this.npcIDs = npcIDs;
     this.groundItemIDs = groundItemIDs;
     this.buryBones = buryBones;
+    this.timer = new Timer;
+    this.timer.defineTimer("TIMER_GAME_INTERACT", TIMER_GAME_INTERACT2);
+    this.timer.defineTimer("TIMER_RECENT_TARGET", TIMER_RECENT_TARGET);
+    this.timer.defineTimer("TIMER_RECENT_MOVING", TIMER_RECENT_MOVING);
+    this.timer.defineTimer("TIMER_ENABLE_RUN", TIMER_ENABLE_RUN2);
+    this.timer.defineTimer("TIMER_LONG_WAIT_TARGET", TIMER_LONG_WAIT_TARGET);
   }
   static htmlSetup(base) {
     const elemAttackStyle = document.createElement("input");
@@ -16408,65 +17138,48 @@ class AutoKiller extends BotScript {
     return new AutoKiller(elemAttackStyle, elemNPCIDs, elemGroundItemIDs, elemBuryBones);
   }
   start(bot) {
-    if (!bot.hasTimer(TIMER_ENABLE_RUN)) {
-      bot.enableRun();
-      bot.setTimer(TIMER_ENABLE_RUN, 90000 + Math.random() * 60000);
+    let api = bot.api;
+    api.tryLogin(() => {
+      api.player.enableRun();
+      api.player.changeAttackStyle(this.attackStyle);
+      this.timer.setTimer(TIMER_ENABLE_RUN2, 90000 + Math.random() * 60000);
+    });
+    if (!this.timer.hasTimer(TIMER_ENABLE_RUN2)) {
+      api.player.enableRun();
+      this.timer.setTimer(TIMER_ENABLE_RUN2, 90000 + Math.random() * 60000);
     }
-    if (bot.hasTarget()) {
-      bot.setTimer(TIMER_RECENT_TARGET, 900);
+    if (api.player.hasTarget()) {
+      this.timer.setTimer(TIMER_RECENT_TARGET, 900);
     }
-    if (bot.isMoving()) {
-      bot.setTimer(TIMER_RECENT_MOVING, 900);
+    if (api.player.isMoving()) {
+      this.timer.setTimer(TIMER_RECENT_MOVING, 900);
     }
-    if (bot.isInCombat()) {
-      bot.setTimer(TIMER_LONG_WAIT_TARGET, 4000);
+    if (api.player.isInCombat()) {
+      this.timer.setTimer(TIMER_LONG_WAIT_TARGET, 4000);
     }
-    if (!bot.hasTimer(TIMER_GAME_INTERACT) && !bot.hasTarget() && !bot.hasTimer(TIMER_RECENT_MOVING)) {
-      let groundItems = bot.getNearestGroundItems(this.groundItemIDs, 10);
-      if (groundItems.length > 0) {
-        groundItems[0].pickUp();
-        bot.setTimer(TIMER_GAME_INTERACT, 1200);
+    if (!this.timer.hasTimer(TIMER_GAME_INTERACT2) && !api.player.hasTarget() && !this.timer.hasTimer(TIMER_RECENT_MOVING)) {
+      let groundItem = api.groundItem.getNearestGroundItemById(this.groundItemIDs, 10);
+      if (groundItem) {
+        groundItem.pickUp();
+        this.timer.setTimer(TIMER_GAME_INTERACT2, 1200);
       }
     }
-    if (!bot.hasTimer(TIMER_GAME_INTERACT) && !bot.hasTimer(TIMER_RECENT_TARGET) && !bot.hasTimer(TIMER_RECENT_MOVING)) {
-      this.attack(bot);
-    } else if (!bot.hasTimer(TIMER_LONG_WAIT_TARGET) && bot.hasTarget() && !bot.isInCombat()) {
-      this.attack(bot);
+    if (!this.timer.hasTimer(TIMER_GAME_INTERACT2) && !this.timer.hasTimer(TIMER_RECENT_TARGET) && !this.timer.hasTimer(TIMER_RECENT_MOVING)) {
+      this.attack(api);
+    } else if (!this.timer.hasTimer(TIMER_LONG_WAIT_TARGET) && api.player.hasTarget() && !api.player.isInCombat()) {
+      this.attack(api);
     }
-    if (this.buryBones && !bot.hasTimer(TIMER_GAME_INTERACT)) {
-      if (bot.interactItem(526, 0)) {
-        bot.setTimer(TIMER_GAME_INTERACT, 800);
-      } else if (bot.interactItem(532, 0)) {
-        bot.setTimer(TIMER_GAME_INTERACT, 800);
-      }
+    if (this.buryBones && !this.timer.hasTimer(TIMER_GAME_INTERACT2)) {
+      this.timer.setTimer(TIMER_GAME_INTERACT2, 800);
+      api.inventory.getItemById(526)?.interact(0);
+      api.inventory.getItemById(532)?.interact(0);
     }
   }
-  login(bot) {
-    if (!bot.isLoggedIn() && !bot.hasTimer(TIMER_LOGGING_IN)) {
-      bot.setTimer(TIMER_LOGGING_IN, 6000);
-      bot.setTimer(TIMER_LOGIN_WAIT, 3000);
-      return;
-    }
-    if (bot.hasTimer(TIMER_LOGGING_IN)) {
-      if (!bot.isLoggedIn() && !bot.hasTimer(TIMER_LOGIN_WAIT)) {
-        bot.login();
-        bot.setTimer(TIMER_LOGIN_WAIT, 3001);
-      }
-      if (bot.isLoggedIn() && !bot.hasTimer(TIMER_SETUP_ACCOUNT_ON_LOGIN)) {
-        bot.enableRun();
-        bot.changeAttackStyle(this.attackStyle);
-        bot.setTimer(TIMER_SETUP_ACCOUNT_ON_LOGIN, 3000);
-        bot.setTimer(TIMER_ENABLE_RUN, 90000 + Math.random() * 60000);
-      }
-      return;
-    }
-  }
-  attack(bot) {
+  attack(api) {
     const ids = this.npcIDs;
-    const randID = Math.floor(Math.random() * (ids.length - 0.0001));
-    bot.attackNPC(ids[randID]);
-    bot.setTimer(TIMER_LONG_WAIT_TARGET, 6500);
-    bot.setTimer(TIMER_GAME_INTERACT, 2500);
+    api.npc.getNPCByIdsNearest(ids, false)?.attack();
+    this.timer.setTimer(TIMER_LONG_WAIT_TARGET, 6500);
+    this.timer.setTimer(TIMER_GAME_INTERACT2, 2500);
   }
 }
 
@@ -16474,118 +17187,14 @@ class AutoKiller extends BotScript {
 class Bot {
   client;
   intervalHandle;
-  lastCombatUpdate;
-  isInCombatScore;
-  timers;
+  api;
   scripts;
   constructor(client, window2) {
     window2.bot = this;
     this.client = client;
-    this.scripts = [AutoKiller];
-    this.lastCombatUpdate = new Date().getTime();
-    this.isInCombatScore = -1000;
-    this.timers = [];
-  }
-  getDistance(x1, z1, x2, z2) {
-    return Math.sqrt(Math.pow(Math.abs(x1 - x2), 2) + Math.pow(Math.abs(z1 - z2), 2));
-  }
-  setMenuOptions(menuOption, p1, p2, p3) {
-    this.client.menuAction[0] = menuOption;
-    this.client.menuParamA[0] = p1;
-    this.client.menuParamB[0] = p2;
-    this.client.menuParamC[0] = p3;
-  }
-  async doAction(menuOption, p1, p2, p3) {
-    this.setMenuOptions(menuOption, p1, p2, p3);
-    this.client.useMenuOption(0);
-  }
-  getNPCs() {
-    const _npcs = this.client.npcs;
-    const npcs = [];
-    for (let i = 0;i < _npcs.length; ++i) {
-      if (_npcs[i] != null) {
-        _npcs[i].listId = i;
-        npcs.push(_npcs[i]);
-      }
-    }
-    return npcs;
-  }
-  getNPCsById(id, includeInCombat) {
-    const npcs = this.getNPCs();
-    let orderedNPCs = [];
-    for (let i = 0;i < npcs.length; ++i) {
-      if (npcs[i] && npcs[i]?.npcType?.id == id && (!includeInCombat || npcs[i]?.targetId == -1)) {
-        orderedNPCs.push(npcs[i]);
-      }
-    }
-    return orderedNPCs;
-  }
-  getNPCsByIdNearest(id, includeInCombat) {
-    const player = this.client.localPlayer;
-    if (!player) {
-      return [];
-    }
-    const npcs = this.getNPCsById(id, includeInCombat);
-    let orderedNPCs = [];
-    for (let i = 0;i < npcs.length; ++i) {
-      let dist = this.getDistance(player.x, player.z, npcs[i]?.x, npcs[i]?.z);
-      npcs[i].dist = dist;
-      let found = false;
-      for (let sp = 0;sp < orderedNPCs.length; ++sp) {
-        if (dist <= orderedNPCs[sp].dist) {
-          orderedNPCs.splice(sp, 0, npcs[i]);
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        orderedNPCs.push(npcs[i]);
-      }
-    }
-    return orderedNPCs;
-  }
-  attackNPC(id) {
-    const npc = this.getNPCsByIdNearest(id, false);
-    if (npc?.length > 0) {
-      this.doAction(542, npc[0].listId, npc[0].x, npc[0].z);
-    }
-  }
-  interactItem(itemId, optionIndex) {
-    const optionIds = [405, 38, 422];
-    for (let s = 0;s < 28; ++s) {
-      const invItem = this.getInvItem(s);
-      if (invItem && invItem.id == itemId) {
-        this.doAction(optionIds[optionIndex], itemId, s, invItem.interfaceId);
-        return true;
-      }
-    }
-    return false;
-  }
-  getInvItem(slotId) {
-    const inv = Component.instances[3214];
-    const slotItem = inv.invSlotObjId[slotId];
-    if (slotItem > 0) {
-      const invItem = ObjType.get(slotItem - 1);
-      if (invItem) {
-        invItem.interfaceId = inv.id;
-        invItem.slotId = slotId;
-      }
-      return invItem;
-    }
-    return null;
-  }
-  setTimer(id, ms) {
-    const realID = id + 1000;
-    this.timers[realID] = new Date().getTime() + ms;
-  }
-  hasTimer(id) {
-    const realID = id + 1000;
-    const now = new Date().getTime();
-    return (this.timers[realID] || 0) > now;
-  }
-  clearTimer(id) {
-    const realID = id + 1000;
-    return this.timers[realID] = 0;
+    this.scripts = [AutoKiller, AutoFisher];
+    this.api = new BotAPI(this);
+    this.intervalHandle = -1;
   }
   start(script) {
     this.stop();
@@ -16598,107 +17207,6 @@ class Bot {
   stop() {
     clearInterval(this.intervalHandle);
     console.info("Script stopped.");
-  }
-  enableRun() {
-    this.doAction(960, 0, 0, 153);
-  }
-  hasTarget() {
-    if (this.client.localPlayer == null) {
-      return false;
-    }
-    return this.client.localPlayer.targetId != -1;
-  }
-  isInCombat() {
-    if (this.client.localPlayer == null) {
-      return false;
-    }
-    const lastScore = this.isInCombatScore;
-    const newScore = this.client.localPlayer.combatCycle;
-    const now = new Date().getTime();
-    if (lastScore != newScore) {
-      this.lastCombatUpdate = now;
-      this.isInCombatScore = newScore;
-    }
-    if (now >= this.lastCombatUpdate + 2800) {
-      return false;
-    }
-    return true;
-  }
-  isMoving() {
-    return (this.client.localPlayer?.routeLength ?? 0) > 0;
-  }
-  _buildPickUpCallback = (index, x, z) => {
-    return () => {
-      this.doAction(99, index, x, z);
-    };
-  };
-  getGroundItems() {
-    let items = [];
-    const currentLevel = this.client.currentLevel;
-    const levelObjectStacks = this.client.objStacks;
-    for (let x = 0;x < levelObjectStacks[currentLevel].length; ++x) {
-      if (levelObjectStacks[currentLevel][x] != null) {
-        for (let z = 0;z < levelObjectStacks[currentLevel][x].length; ++z) {
-          const itemStack = levelObjectStacks[currentLevel][x][z];
-          if (itemStack != null) {
-            let item = itemStack.sentinel.next;
-            let loops = 10;
-            while (item.index != null && loops-- > 0) {
-              const pickUp = this._buildPickUpCallback(item.index, x, z);
-              let def = { x, z, index: item.index, count: item.count, dist: Number.MAX_SAFE_INTEGER, pickUp };
-              items.push(def);
-              item = item.next;
-            }
-          }
-        }
-      }
-    }
-    return items;
-  }
-  getNearestGroundItems = (ids, maxDist) => {
-    if (!this.client.localPlayer) {
-      return [];
-    }
-    const groundItems = this.getGroundItems();
-    let items = [];
-    for (let i = 0;i < groundItems.length; ++i) {
-      for (let j = 0;j < ids.length; ++j) {
-        if (groundItems[i].index == ids[j]) {
-          let dist = this.getDistance(this.client.localPlayer.routeFlagX[0], this.client.localPlayer.routeFlagZ[0], groundItems[i].x, groundItems[i].z);
-          groundItems[i].dist = dist;
-          if (dist > maxDist) {
-            break;
-          }
-          let found = false;
-          for (let sp = 0;sp < items.length; ++sp) {
-            if (dist <= items[sp].dist) {
-              items.splice(sp, 0, groundItems[i]);
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            items.push(groundItems[i]);
-          }
-          break;
-        }
-      }
-    }
-    return items;
-  };
-  isLoggedIn() {
-    return this.client.ingame;
-  }
-  login() {
-    this.client.tryLogin(this.client.usernameInput, this.client.passwordInput, true);
-  }
-  changeAttackStyle(index) {
-    const scim_ids = [2429, 2432, 2431, 2430];
-    const sword_ids = [2282, 2285, 2284, 2283];
-    this.doAction(960, 0, 0, sword_ids[index]);
-  }
-  startScript() {
-    this.start(new AutoKiller(1, [41], [314, 526], true));
   }
 }
 
@@ -17754,7 +18262,7 @@ class Client extends GameShell {
       }
       if (reply === 3) {
         this.loginMessage0 = "";
-        this.loginMessage1 = "Invalid 2423423 or password.";
+        this.loginMessage1 = "Invalid username or password.";
         return;
       }
       if (reply === 4) {
@@ -18581,6 +19089,15 @@ class Client extends GameShell {
         line++;
       }
     }
+  }
+  getModel() {
+    return Model;
+  }
+  getLocType() {
+    return LocType;
+  }
+  getScene() {
+    return World3D;
   }
   handleViewportOptions() {
     if (this.objSelected === 0 && this.spellSelected === 0) {
@@ -23377,9 +23894,6 @@ class Client extends GameShell {
     const a = this.menuParamA[optionId];
     const b = this.menuParamB[optionId];
     const c = this.menuParamC[optionId];
-    if (action == 3214 || a == 3214 || b == 3214 || c == 3214) {
-      console.info("aay)");
-    }
     console.info("Menu action: ", action, a, b, c);
     if (action >= 2000) {
       action -= 2000;
@@ -25690,4 +26204,4 @@ export {
   Client
 };
 
-//# debugId=8E7E079FB431B10B64756E2164756E21
+//# debugId=BF88124A9B6ACD1564756E2164756E21
