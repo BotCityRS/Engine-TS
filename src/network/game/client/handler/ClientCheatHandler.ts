@@ -287,7 +287,7 @@ export default class ClientCheatHandler extends MessageHandler<ClientCheat> {
                     return false;
                 }
 
-                const obj = ObjType.getId(args[0]);
+                const obj = parseInt(args[0]);//ObjType.getId(args[0]);
                 if (obj === -1) {
                     return false;
                 }
@@ -392,6 +392,15 @@ export default class ClientCheatHandler extends MessageHandler<ClientCheat> {
                 other.unsetMapFlag();
 
                 other.teleJump(player.x, player.z, player.level);
+            } else if (cmd === 'setall') {
+                if (args.length < 1) {
+                    // ::setall <level>
+                    // Sets the skill to specified level
+                    return false;
+                }
+                PlayerStatEnabled.forEach((_e,i) => {
+                    player.setLevel(i, parseInt(args[0]));
+                });
             } else if (cmd === 'setstat') {
                 // authentic
                 if (args.length < 2) {
@@ -468,14 +477,9 @@ export default class ClientCheatHandler extends MessageHandler<ClientCheat> {
                 player.messageGame(CoordGrid.formatString(player.level, player.x, player.z, ','));
             } else if (cmd === 'tele') {
                 // authentic - https://youtu.be/60Y3y375VYA?t=980
-                if (args.length < 1) {
-                    // ::tele x,xx,xx[,xx,xx]
+                if (args.length < 3) {
+                    // ::tele x xx xx
                     // Teleports you to the coordinate. In order, the parts are level, horizontal map square, vertical map square, horizontal tile, vertical tile.
-                    return false;
-                }
-
-                const coord = args[0].split(',');
-                if (coord.length < 3) {
                     return false;
                 }
 
@@ -489,17 +493,15 @@ export default class ClientCheatHandler extends MessageHandler<ClientCheat> {
                 player.clearInteraction();
                 player.unsetMapFlag();
 
-                const level = tryParseInt(coord[0], 0);
-                const mx = tryParseInt(coord[1], 50);
-                const mz = tryParseInt(coord[2], 50);
-                const lx = tryParseInt(coord[3], 32);
-                const lz = tryParseInt(coord[4], 32);
+                const level = tryParseInt(args[0], 0);
+                const x = tryParseInt(args[1], 50);
+                const z = tryParseInt(args[2], 50);
 
-                if (level < 0 || level > 3 || mx < 0 || mx > 255 || mz < 0 || mz > 255 || lx < 0 || lx > 63 || lz < 0 || lz > 63) {
+                if (level < 0 || level > 3) {
                     return false;
                 }
 
-                player.teleJump((mx << 6) + lx, (mz << 6) + lz, level);
+                player.teleJump(x, z, level);
             } else if (cmd === 'teleto' && Environment.NODE_PRODUCTION) {
                 // custom
                 if (args.length < 1) {

@@ -16477,7 +16477,12 @@ class Bank extends ItemContainer {
     return this.api.client.sidebarInterfaceId == 2005;
   }
   open() {
-    this.api.worldObject.getNearestById([2213])?.interact(1);
+    const bankBooth = this.api.worldObject.getNearestById([2213]);
+    if (!bankBooth) {
+      return false;
+    }
+    bankBooth.interact(1);
+    return true;
   }
   close() {
     this.api.doAction(947, -1, -1, 5384);
@@ -16498,6 +16503,28 @@ class Bank extends ItemContainer {
         item?.depositAll();
       }
     }
+  }
+}
+
+// src/bot/api/base/EquipmentInterfaceItem.ts
+class EquipmentInterfaceItem extends InterfaceItem {
+  bankOpenInterfaceId = 2006;
+  constructor(api, interfaceId, slot, id, count) {
+    super(api, interfaceId, slot, id, count);
+  }
+  interact(optionIndex) {
+    const optionIds = [602];
+    this.api.doAction(optionIds[optionIndex], this.id, this.slot, this.interfaceId);
+  }
+  unequip() {
+    this.interact(0);
+  }
+}
+
+// src/bot/api/Equipment.ts
+class Equipment extends ItemContainer {
+  constructor(api) {
+    super(api, 1688, EquipmentInterfaceItem);
   }
 }
 
@@ -16524,6 +16551,29 @@ class GroundItemEntity {
 
 // src/bot/api/Utility.ts
 class Utility {
+  static food = {
+    SHRIMP: {
+      rawId: 317,
+      cookedId: 315,
+      hp: 3
+    },
+    ANCHOVIES: { rawId: 321, cookedId: 319, burnId: 323, hp: 1 },
+    SARDINE: { rawId: 327, cookedId: 325, burnId: 369, hp: 2 },
+    SALMON: { rawId: 331, cookedId: 329, burnId: 343, hp: 9 },
+    TROUT: { rawId: 335, cookedId: 333, burnId: 343, hp: 7 },
+    GIANT_CARP: { rawId: 338, cookedId: 337, burnId: 343, hp: 6 },
+    COD: { rawId: 341, cookedId: 339, burnId: 343, hp: 7 },
+    HERRING: { rawId: 345, cookedId: 347, burnId: 357, hp: 5 },
+    PIKE: { rawId: 349, cookedId: 351, burnId: 343, hp: 8 },
+    MACKEREL: { rawId: 353, cookedId: 355, burnId: 343, hp: 6 },
+    TUNA: { rawId: 359, cookedId: 361, burnId: 367, hp: 10 },
+    BASS: { rawId: 363, cookedId: 365, burnId: 367, hp: 13 },
+    SWORDFISH: { rawId: 371, cookedId: 373, burnId: 375, hp: 14 },
+    LOBSTER: { rawId: 377, cookedId: 379, burnId: 381, hp: 12 },
+    SHARK: { rawId: 383, cookedId: 385, burnId: 387, hp: 20 },
+    MANTA_RAY: { rawId: 389, cookedId: 391, burnId: 393, hp: 22 },
+    SEA_TURTLE: { rawId: 395, cookedId: 397, burnId: 399, hp: 21 }
+  };
   constructor() {}
   static getDistance(x1, z1, x2, z2) {
     return Math.sqrt(Math.pow(Math.abs(x1 - x2), 2) + Math.pow(Math.abs(z1 - z2), 2));
@@ -16636,6 +16686,9 @@ class InvInterfaceItem extends InterfaceItem {
     const optionIds = [405, 38, 422];
     this.api.doAction(optionIds[optionIndex], this.id, this.slot, this.interfaceId);
   }
+  equip() {
+    this.interact(1);
+  }
   deposit1() {
     if (!this.api.bank.isOpen()) {
       return;
@@ -16685,7 +16738,7 @@ class ClientNPCEntity {
     this.uid = npc.uid = uid;
     this.id = npc.id = npc.npcType?.id ?? -1;
     this.npc = npc;
-    this.playerDist = Number.MAX_SAFE_INTEGER;
+    this.playerDist = Utility.getDistance(api.player.getLocalX(), api.player.getLocalZ(), npc.routeFlagX[0], npc.routeFlagZ[0]);
   }
   attack() {
     this.api.doAction(542, this.uid, this.npc.x, this.npc.z);
@@ -16696,6 +16749,14 @@ class ClientNPCEntity {
   }
   examine() {
     this.api.doAction(1607, this.uid, this.npc.x, this.npc.z);
+  }
+  isInArea(x1, z1, x2, z2) {
+    if (x1 > x2 || z1 > z2) {
+      throw "Invalid area.";
+    }
+    const x = this.npc.routeFlagX[0] + this.api.client.sceneBaseTileX;
+    const z = this.npc.routeFlagZ[0] + this.api.client.sceneBaseTileZ;
+    return x >= x1 && x <= x2 && z >= z1 && z <= z2;
   }
 }
 
@@ -16740,9 +16801,20 @@ class NPC {
     const npcs = this.getAllByIds(ids, includeInCombat);
     let nearestNPC = null;
     for (let i = 0;i < npcs.length; ++i) {
-      let dist = Utility.getDistance(this.api.player.x, this.api.player.z, npcs[i].x, npcs[i].z);
-      npcs[i].playerDist = dist;
-      if (!nearestNPC || dist < nearestNPC.playerDist) {
+      if (!nearestNPC || npcs[i].playerDist < nearestNPC.playerDist) {
+        nearestNPC = npcs[i];
+      }
+    }
+    return nearestNPC;
+  }
+  getNPCByIdsNearestIf(ids, checkFunc) {
+    if (!this.api.isLoggedIn()) {
+      return null;
+    }
+    const npcs = this.getAllByIds(ids, true);
+    let nearestNPC = null;
+    for (let i = 0;i < npcs.length; ++i) {
+      if (checkFunc(npcs[i]) && (!nearestNPC || npcs[i].playerDist < nearestNPC.playerDist)) {
         nearestNPC = npcs[i];
       }
     }
@@ -16796,6 +16868,15 @@ class Player {
     const sword_ids = [2282, 2285, 2284, 2283];
     this.api.doAction(960, 0, 0, sword_ids[index]);
   }
+  getLevel(skillId) {
+    return this.api.client.skillLevel[skillId];
+  }
+  getBaseLevel(skillId) {
+    return this.api.client.skillBaseLevel[skillId];
+  }
+  getXP(skillId) {
+    return this.api.client.skillExperience[skillId];
+  }
 }
 
 // src/bot/api/Timer.ts
@@ -16847,6 +16928,100 @@ class Timer {
       throw "Undefined timer ID " + id;
     }
     return this.timers[id] = 0;
+  }
+}
+
+// src/bot/api/World.ts
+class World2 {
+  api;
+  static paths = {
+    DRAYNOR_TO_LUMBRIDGE: [[3092, 3248], [3103, 3236], [3109, 3226], [3126, 3222], [3136, 3225], [3148, 3229], [3160, 3232], [3173, 3236], [3186, 3240], [3191, 3238], [3206, 3242], [3218, 3238], [3229, 3228], [3233, 3219]],
+    DRAYNOR_TO_FALADOR: [[3080, 3260], [3071, 3276], [3058, 3278], [3041, 3281], [3025, 3278], [3015, 3278], [3011, 3290], [3010, 3292], [3006, 3307], [3007, 3324], [3007, 3339], [3006, 3353], [3006, 3363]],
+    FALADOR_TO_BARB_VILLAGE: [[2993, 3370], [2979, 3379], [2965, 3386], [2966, 3396], [2976, 3409], [2985, 3419], [2993, 3430], [3009, 3432], [3024, 3431], [3035, 3431], [3046, 3429], [3059, 3427], [3069, 3418], [3083, 3419]],
+    BARB_VILLAGE_TO_VARROCK: [[3099, 3420], [3114, 3421], [3127, 3418], [3140, 3416], [3151, 3417], [3162, 3421], [3175, 3429], [3183, 3428], [3197, 3429], [3210, 3428]],
+    BARB_VILLAGE_TO_EDGEVILLE: [[3107, 3433], [3095, 3444], [3094, 3457], [3087, 3464], [3081, 3476], [3087, 3488], [3096, 3491], [3093, 3490]],
+    FALADOR_TO_VARROCK: [[2993, 3370], [2979, 3379], [2965, 3386], [2966, 3396], [2976, 3409], [2985, 3419], [2993, 3430], [3009, 3432], [3024, 3431], [3035, 3431], [3046, 3429], [3059, 3427], [3069, 3418], [3083, 3419], [3099, 3420], [3114, 3421], [3127, 3418], [3140, 3416], [3151, 3417], [3162, 3421], [3175, 3429], [3183, 3428], [3197, 3429], [3210, 3428]],
+    VARROCK_TO_LUMBRIDGE: [[3211, 3411], [3211, 3397], [3211, 3383], [3207, 3379], [3201, 3373], [3202, 3364], [3208, 3358], [3217, 3355], [3226, 3349], [3227, 3343], [3240, 3335], [3252, 3335], [3250, 3317], [3240, 3306], [3239, 3290], [3245, 3274], [3238, 3261], [3229, 3248], [3225, 3240], [3233, 3225], [3233, 3219]],
+    DRAYNOR_TO_BARB_VILLAGE: [[3082, 3262], [3075, 3272], [3075, 3284], [3073, 3296], [3072, 3310], [3073, 3327], [3074, 3339], [3075, 3353], [3075, 3367], [3074, 3381], [3080, 3395], [3085, 3411], [3085, 3418]],
+    FALADOR_TO_CATHERBY: [[2978, 3378], [2965, 3388], [2961, 3402], [2958, 3415], [2954, 3420], [2949, 3433], [2941, 3450], [2935, 3451], [2919, 3456], [2903, 3454], [2889, 3446], [2890, 3439], [2871, 3439], [2866, 3455], [2859, 3465], [2856, 3476], [2861, 3492], [2856, 3507], [2850, 3497], [2851, 3482], [2845, 3470], [2846, 3452], [2844, 3435], [2827, 3438], [2809, 3439]]
+  };
+  pathCompleteCallback = null;
+  constructor(api) {
+    this.api = api;
+  }
+  distanceTo(x, z) {
+    const offsetX = this.api.client.sceneBaseTileX;
+    const offsetZ = this.api.client.sceneBaseTileZ;
+    const px = this.api.player.getLocalX();
+    const pz = this.api.player.getLocalZ();
+    return Utility.getDistance(px, pz, x - offsetX, z - offsetZ);
+  }
+  moveTo(x, z) {
+    const offsetX = this.api.client.sceneBaseTileX;
+    const offsetZ = this.api.client.sceneBaseTileZ;
+    this.api.client.tryMove(this.api.player.getLocalX(), this.api.player.getLocalZ(), x - offsetX, z - offsetZ, 0, 0, 0, 0, 0, 0, true);
+  }
+  stopPath() {
+    this.pathCompleteCallback?.(false);
+  }
+  hasPath() {
+    return this.pathCompleteCallback != null;
+  }
+  walkPath(path, traverse = true) {
+    const nodeDist = 5;
+    const movement = traverse ? 1 : -1;
+    const findNearestNode = (path2) => {
+      let nearestI = -1;
+      let nearDist = Number.MAX_SAFE_INTEGER;
+      path2.forEach((n2, i) => {
+        const dist = this.api.world.distanceTo(n2[0], n2[1]);
+        if (dist < nearDist && dist < 100) {
+          nearDist = dist;
+          nearestI = i;
+        }
+      });
+      return nearestI;
+    };
+    let n = findNearestNode(path);
+    return new Promise((res, rej) => {
+      const timer = new Timer;
+      let walkRef = undefined;
+      const pathCompleteCallback = (result) => {
+        clearInterval(walkRef);
+        res(result);
+        this.pathCompleteCallback = null;
+      };
+      this.pathCompleteCallback?.(false);
+      this.pathCompleteCallback = pathCompleteCallback;
+      timer.defineTimer("IS_WALKING", 0);
+      walkRef = setInterval(() => {
+        if (n < 0) {
+          return this.pathCompleteCallback?.(true);
+        }
+        const curNode = path[n];
+        let tries = 10;
+        const dist = this.api.world.distanceTo(curNode[0], curNode[1]);
+        console.info("dist:", dist);
+        if (dist > nodeDist && this.api.player.isMoving() || timer.hasTimer(0) || tries < 0) {
+          if (dist > 100 || tries < 0) {
+            this.pathCompleteCallback?.(false);
+          }
+          return;
+        }
+        --tries;
+        if (dist <= nodeDist) {
+          n += movement;
+          tries = 0;
+        }
+        if (n >= path.length || n < 0) {
+          return this.pathCompleteCallback?.(true);
+        } else {
+          this.moveTo(path[n][0], path[n][1]);
+          this.api.player.enableRun();
+          timer.setTimer(0, 1200);
+        }
+      }, 100);
+    });
   }
 }
 
@@ -16935,12 +17110,14 @@ class BotAPI {
   util;
   bank;
   inventory;
+  equipment;
   player;
   npc;
   worldObject;
   groundItem;
   interface;
   systemTimer;
+  world;
   constructor(bot) {
     this.bot = bot;
     this.client = bot.client;
@@ -16949,9 +17126,11 @@ class BotAPI {
     this.bank = new Bank(this);
     this.player = new Player(this);
     this.inventory = new Inventory(this);
+    this.equipment = new Equipment(this);
     this.npc = new NPC(this);
     this.worldObject = new WorldObject(this);
     this.groundItem = new GroundItem(this);
+    this.world = new World2(this);
     this.systemTimer = Timer.SystemTimer();
   }
   setMenuOptions(menuOption, p1, p2, p3) {
@@ -16992,7 +17171,12 @@ class BotAPI {
 
 // src/bot/scripts/BotScript.ts
 class BotScript {
-  start(bot) {}
+  name;
+  constructor(name) {
+    this.name = name;
+  }
+  update(bot) {}
+  stop(bot) {}
 }
 
 // src/bot/scripts/AutoFisher.ts
@@ -17001,48 +17185,89 @@ var TIMER_ENABLE_RUN = 1;
 
 class AutoFisher extends BotScript {
   timer;
-  constructor(attackStyle, npcIDs, groundItemIDs, buryBones) {
-    super();
+  static locations = [{
+    label: "Draynor Small Net",
+    itemReq: 303,
+    baitReq: -1,
+    pathToBank: [[3087, 3238]],
+    poolIds: [327],
+    poolInteractOption: 0
+  }, {
+    label: "Draynor Bait",
+    itemReq: 307,
+    baitReq: 313,
+    pathToBank: [[3087, 3238]],
+    poolIds: [327],
+    poolInteractOption: 1
+  }, {
+    label: "Barbarian Fly",
+    itemReq: 309,
+    baitReq: 314,
+    pathToBank: [[3107, 3433], [3095, 3444], [3094, 3457], [3087, 3464], [3081, 3476], [3087, 3488], [3096, 3491], [3093, 3490]],
+    poolIds: [328],
+    poolInteractOption: 0
+  }, {
+    label: "Barbarian Bait",
+    itemReq: 307,
+    baitReq: 313,
+    pathToBank: [[3107, 3433], [3095, 3444], [3094, 3457], [3087, 3464], [3081, 3476], [3087, 3488], [3096, 3491], [3093, 3490]],
+    poolIds: [328],
+    poolInteractOption: 1
+  }, {
+    label: "Catherby Cage",
+    itemReq: 301,
+    baitReq: -1,
+    pathToBank: [[2851, 3428], [2836, 3434], [2821, 3438], [2809, 3440]],
+    poolIds: [321],
+    poolInteractOption: 0
+  }, {
+    label: "Catherby Harpoon (Swordfish)",
+    itemReq: 311,
+    baitReq: -1,
+    pathToBank: [[2851, 3428], [2836, 3434], [2821, 3438], [2809, 3440]],
+    poolIds: [321],
+    poolInteractOption: 1
+  }, {
+    label: "Catherby Harpoon (Shark)",
+    itemReq: 311,
+    baitReq: -1,
+    pathToBank: [[2851, 3428], [2836, 3434], [2821, 3438], [2809, 3440]],
+    poolIds: [322],
+    poolInteractOption: 1
+  }, {
+    label: "Catherby Big Net",
+    itemReq: 305,
+    baitReq: -1,
+    pathToBank: [[2851, 3428], [2836, 3434], [2821, 3438], [2809, 3440]],
+    poolIds: [322],
+    poolInteractOption: 0
+  }];
+  location;
+  constructor(locationId) {
+    super("AutoFisher");
     this.timer = new Timer;
+    this.location = AutoFisher.locations[locationId];
     this.timer.defineTimer("TIMER_GAME_INTERACT", TIMER_GAME_INTERACT);
     this.timer.defineTimer("TIMER_ENABLE_RUN", TIMER_ENABLE_RUN);
   }
   static htmlSetup(base) {
-    const elemAttackStyle = document.createElement("input");
-    elemAttackStyle.id = "elemAttackStyle";
-    elemAttackStyle.placeholder = "Attack Style: 0 = atk, 1 = str, 2 = shared, 3 = def";
-    elemAttackStyle.value = "0";
-    const elemNPCIDs = document.createElement("input");
-    elemNPCIDs.id = "elemNPCIDs";
-    elemNPCIDs.placeholder = "NPC IDs comma seperated";
-    elemNPCIDs.value = "41";
-    const elemGroundItemIDs = document.createElement("input");
-    elemGroundItemIDs.id = "elemGroundItemIDs";
-    elemGroundItemIDs.placeholder = "Pickup Item IDs comma seperated";
-    elemGroundItemIDs.value = "314,526";
-    const elemBuryLabel = document.createElement("div");
-    elemBuryLabel.innerText = "Bury Bones?";
-    const elemBuryBones = document.createElement("input");
-    elemBuryBones.id = "elemBuryBones";
-    elemBuryBones.type = "checkbox";
-    elemBuryBones.checked = true;
-    base.appendChild(elemAttackStyle);
+    const elemLocation = document.createElement("select");
+    elemLocation.id = "elemLocation";
+    AutoFisher.locations.forEach((loc, i) => {
+      const option = document.createElement("option");
+      option.value = String(i);
+      option.textContent = loc.label;
+      elemLocation.appendChild(option);
+    });
     base.appendChild(document.createElement("br"));
-    base.appendChild(elemNPCIDs);
+    base.appendChild(elemLocation);
     base.appendChild(document.createElement("br"));
-    base.appendChild(elemGroundItemIDs);
-    base.appendChild(document.createElement("br"));
-    base.appendChild(elemBuryLabel);
-    base.appendChild(elemBuryBones);
   }
   static buildFromHtml(base) {
-    const elemAttackStyle = document.getElementById("elemAttackStyle")?.value;
-    const elemNPCIDs = document.getElementById("elemNPCIDs")?.value.split(",");
-    const elemGroundItemIDs = document.getElementById("elemGroundItemIDs")?.value.split(",");
-    const elemBuryBones = document.getElementById("elemBuryBones")?.checked;
-    return new AutoFisher(elemAttackStyle, elemNPCIDs, elemGroundItemIDs, elemBuryBones);
+    const elemLocation = document.getElementById("elemLocation")?.value;
+    return new AutoFisher(elemLocation);
   }
-  start(bot) {
+  async update(bot) {
     let api = bot.api;
     if (this.timer.hasTimer(TIMER_GAME_INTERACT)) {
       return;
@@ -17059,19 +17284,29 @@ class AutoFisher extends BotScript {
       this.timer.setTimer(TIMER_GAME_INTERACT, 300);
       return;
     }
-    if (!api.inventory.hasItem(303) || api.inventory.isFull()) {
+    if (!api.inventory.hasItem(this.location.itemReq) || this.location.baitReq >= 0 && !api.inventory.hasItem(this.location.baitReq) || api.inventory.isFull()) {
       this.timer.setTimer(TIMER_GAME_INTERACT, 2000);
       if (!api.bank.isOpen()) {
-        api.bank.open();
+        if (!api.bank.open()) {
+          await api.world.walkPath(this.location.pathToBank);
+        }
       } else {
-        api.bank.depositAllExcept([303]);
-        if (!api.inventory.hasItem(303)) {
-          api.bank.withdraw(303);
+        api.bank.depositAllExcept([this.location.itemReq, this.location.baitReq]);
+        if (!api.inventory.hasItem(this.location.itemReq)) {
+          api.bank.withdraw(this.location.itemReq);
+        }
+        if (this.location.baitReq >= 0 && !api.inventory.hasItemAmount(this.location.baitReq, 100)) {
+          api.bank.getItemById(this.location.baitReq)?.withdraw(1000);
         }
       }
     } else if (!api.player.isAnimating()) {
       this.timer.setTimer(TIMER_GAME_INTERACT, 2000);
-      api.npc.getNPCByIdsNearest([327])?.interact(0);
+      const nearestPool = api.npc.getNPCByIdsNearest(this.location.poolIds);
+      if (nearestPool) {
+        nearestPool.interact(this.location.poolInteractOption);
+      } else if (api.world.distanceTo(this.location.pathToBank[0][0], this.location.pathToBank[0][1]) > 10) {
+        await api.world.walkPath(this.location.pathToBank, false);
+      }
     }
   }
 }
@@ -17090,7 +17325,7 @@ class AutoKiller extends BotScript {
   buryBones;
   timer;
   constructor(attackStyle, npcIDs, groundItemIDs, buryBones) {
-    super();
+    super("AutoKiller");
     this.attackStyle = attackStyle;
     this.npcIDs = npcIDs;
     this.groundItemIDs = groundItemIDs;
@@ -17137,7 +17372,7 @@ class AutoKiller extends BotScript {
     const elemBuryBones = document.getElementById("elemBuryBones")?.checked;
     return new AutoKiller(elemAttackStyle, elemNPCIDs, elemGroundItemIDs, elemBuryBones);
   }
-  start(bot) {
+  update(bot) {
     let api = bot.api;
     api.tryLogin(() => {
       api.player.enableRun();
@@ -17183,28 +17418,189 @@ class AutoKiller extends BotScript {
   }
 }
 
+// src/bot/scripts/AutoWalker.ts
+var TIMER_GAME_INTERACT3 = 0;
+var TIMER_ENABLE_RUN3 = 1;
+var TIMER_NOT_MOVING = 2;
+
+class AutoWalker extends BotScript {
+  timer;
+  static paths = [{
+    label: "Draynor <-> Lumbridge",
+    path: World2.paths.DRAYNOR_TO_LUMBRIDGE
+  }, {
+    label: "Draynor <-> Falador",
+    path: World2.paths.DRAYNOR_TO_FALADOR
+  }, {
+    label: "Draynor <-> Barb Village",
+    path: World2.paths.VARROCK_TO_LUMBRIDGE
+  }, {
+    label: "Barb Village <-> Varrock",
+    path: World2.paths.BARB_VILLAGE_TO_VARROCK
+  }, {
+    label: "Barb Village <-> Edgeville",
+    path: World2.paths.BARB_VILLAGE_TO_EDGEVILLE
+  }, {
+    label: "Falador <-> Barb Village",
+    path: World2.paths.FALADOR_TO_BARB_VILLAGE
+  }, {
+    label: "Falador <-> Varrock",
+    path: World2.paths.FALADOR_TO_VARROCK
+  }, {
+    label: "Falador <-> Catherby",
+    path: World2.paths.FALADOR_TO_CATHERBY
+  }, {
+    label: "Varrock <-> Lumbridge",
+    path: World2.paths.VARROCK_TO_LUMBRIDGE
+  }];
+  path;
+  traverse;
+  constructor(locationId, traverse) {
+    super("AutoFisher");
+    this.timer = new Timer;
+    this.path = AutoWalker.paths[locationId];
+    this.traverse = traverse;
+    this.timer.defineTimer("TIMER_GAME_INTERACT", TIMER_GAME_INTERACT3);
+    this.timer.defineTimer("TIMER_ENABLE_RUN", TIMER_ENABLE_RUN3);
+    this.timer.defineTimer("TIMER_NOT_MOVING", TIMER_NOT_MOVING);
+  }
+  static htmlSetup(base) {
+    const elemLocation = document.createElement("select");
+    elemLocation.id = "elemLocation";
+    const elemReverseLabel = document.createElement("div");
+    elemReverseLabel.innerText = "Reverse?";
+    const elemReverse = document.createElement("input");
+    elemReverse.id = "elemReverse";
+    elemReverse.type = "checkbox";
+    AutoWalker.paths.forEach((loc, i) => {
+      const option = document.createElement("option");
+      option.value = String(i);
+      option.textContent = loc.label;
+      elemLocation.appendChild(option);
+    });
+    base.appendChild(document.createElement("br"));
+    base.appendChild(elemLocation);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(elemReverseLabel);
+    base.appendChild(elemReverse);
+  }
+  static buildFromHtml(base) {
+    const elemLocation = document.getElementById("elemLocation")?.value;
+    const traverse = !document.getElementById("elemReverse")?.checked;
+    return new AutoWalker(elemLocation, traverse);
+  }
+  update(bot) {
+    let api = bot.api;
+    if (this.timer.hasTimer(TIMER_GAME_INTERACT3)) {
+      return;
+    }
+    api.tryLogin(() => {
+      api.player.enableRun();
+      this.timer.setTimer(TIMER_ENABLE_RUN3, 90000 + Math.random() * 60000);
+    });
+    if (api.player.isMoving()) {
+      this.timer.setTimer(TIMER_NOT_MOVING, 1200);
+    }
+    if (!this.timer.hasTimer(TIMER_NOT_MOVING)) {
+      api.world.walkPath(this.path.path, this.traverse).then((result) => {
+        if (result) {
+          api.bot.stop();
+        }
+      });
+      this.timer.setTimer(TIMER_NOT_MOVING, 1200);
+    }
+  }
+  stop(bot) {
+    bot.api.world.stopPath();
+  }
+}
+
+// src/bot/scripts/LumbyThievSuicide.ts
+var TIMER_GAME_INTERACT4 = 0;
+var TIMER_ENABLE_RUN4 = 1;
+
+class LumbyThievSuicide extends BotScript {
+  timer;
+  pickupCoins;
+  constructor(pickupCoins) {
+    super("LumbyThievSuicide");
+    this.timer = new Timer;
+    this.pickupCoins = pickupCoins;
+    this.timer.defineTimer("TIMER_GAME_INTERACT", TIMER_GAME_INTERACT4);
+    this.timer.defineTimer("TIMER_ENABLE_RUN", TIMER_ENABLE_RUN4);
+  }
+  static htmlSetup(base) {
+    const elemPickupCoinsLabel = document.createElement("div");
+    elemPickupCoinsLabel.innerText = "Pickup coins?";
+    const elemPickupCoins = document.createElement("input");
+    elemPickupCoins.id = "elemPickupCoins";
+    elemPickupCoins.type = "checkbox";
+    elemPickupCoins.checked = true;
+    base.appendChild(document.createElement("br"));
+    base.appendChild(elemPickupCoinsLabel);
+    base.appendChild(elemPickupCoins);
+    base.appendChild(document.createElement("br"));
+  }
+  static buildFromHtml(base) {
+    const pickupCoins = document.getElementById("elemPickupCoins")?.checked;
+    return new LumbyThievSuicide(pickupCoins);
+  }
+  update(bot) {
+    let api = bot.api;
+    if (this.timer.hasTimer(TIMER_GAME_INTERACT4)) {
+      return;
+    }
+    api.tryLogin(() => {
+      api.player.enableRun();
+      this.timer.setTimer(TIMER_ENABLE_RUN4, 90000 + Math.random() * 60000);
+    });
+    if (!this.timer.hasTimer(TIMER_ENABLE_RUN4)) {
+      api.player.enableRun();
+      this.timer.setTimer(TIMER_ENABLE_RUN4, 90000 + Math.random() * 60000);
+    }
+    if (api.player.isMoving() || api.player.isAnimating()) {
+      this.timer.setTimer(TIMER_GAME_INTERACT4, 300);
+      return;
+    } else {
+      let groundItem = this.pickupCoins && api.groundItem.getNearestGroundItemById([995], 20);
+      if (groundItem) {
+        groundItem.pickUp();
+        this.timer.setTimer(TIMER_GAME_INTERACT4, 1200);
+      } else {
+        api.npc.getNPCByIdsNearestIf([1, 2, 3, 4], (npc) => {
+          return !npc.isInArea(3202, 3209, 3216, 3228);
+        })?.interact(1);
+        this.timer.setTimer(TIMER_GAME_INTERACT4, 1200);
+      }
+    }
+  }
+}
+
 // src/bot/Bot.ts
 class Bot {
   client;
   intervalHandle;
   api;
   scripts;
+  currentScript = null;
   constructor(client, window2) {
     window2.bot = this;
     this.client = client;
-    this.scripts = [AutoKiller, AutoFisher];
+    this.scripts = [AutoKiller, AutoFisher, LumbyThievSuicide, AutoWalker];
     this.api = new BotAPI(this);
     this.intervalHandle = -1;
   }
   start(script) {
     this.stop();
+    this.currentScript = script;
     const tickFunc = () => {
-      script.start(this);
+      script.update(this);
     };
     this.intervalHandle = setInterval(tickFunc, 100);
     console.info("Script started.");
   }
   stop() {
+    this.currentScript?.stop(this);
     clearInterval(this.intervalHandle);
     console.info("Script stopped.");
   }
@@ -17593,6 +17989,7 @@ class Client extends GameShell {
   midiVolume = 64;
   displayFps = false;
   bot;
+  record = [];
   static {
     let acc = 0;
     for (let i = 0;i < 99; i++) {
@@ -21720,6 +22117,9 @@ class Client extends GameShell {
     if (!collisionMap) {
       return false;
     }
+    const xz = [dx + this.sceneBaseTileX, dz + this.sceneBaseTileZ];
+    console.info("Move to: ", xz);
+    this.record.push(xz);
     const sceneWidth = 104 /* SIZE */;
     const sceneLength = 104 /* SIZE */;
     for (let x2 = 0;x2 < sceneWidth; x2++) {
@@ -26204,4 +26604,4 @@ export {
   Client
 };
 
-//# debugId=BF88124A9B6ACD1564756E2164756E21
+//# debugId=16E476D90A0862B864756E2164756E21

@@ -223,17 +223,14 @@
 
             botParams.innerHTML = '';
 
-            switch(target) {
-                case 'autokiller':
-                    bot.scripts[0].htmlSetup(botParams)
+            for (let i = 0; i < bot.scripts.length; ++i) {
+                if (bot.scripts[i].name == target) {
+                    bot.scripts[i].htmlSetup(botParams)
                     window.bot.startScript = () => {
-                        bot.start(bot.scripts[0].buildFromHtml())
+                        bot.start(bot.scripts[i].buildFromHtml())
                     }
-                case 'autofisher':
-                    bot.scripts[1].htmlSetup(botParams)
-                    window.bot.startScript = () => {
-                        bot.start(bot.scripts[1].buildFromHtml())
-                    }
+                    break;
+                }
             }
         }
 
@@ -318,10 +315,6 @@
         </div>
         <div id="bot-control">
             <select id="botscripts" name="botscripts" onchange="setScriptChoice();">
-                <optgroup>
-                    <option value="autokiller" id="autokiller">Auto Killer</option>
-                    <option value="autofisher" id="autofisher">Auto Fisher</option>
-                </optgroup>
             </select> |
             <a class="green" href="#" id="startBot" onclick="window.bot.startScript();">Start Bot</a> |
             <a class="green" href="#" id="stopBot" onclick="window.bot.stop();">Stop Bot</a>
@@ -360,6 +353,15 @@
 
         (() => {
             new Client(<%= nodeid %>, <%= lowmem %>, <%= members %>, window);
+
+            const elemBotScripts = document.getElementById('botscripts')
+
+            bot.scripts.forEach(script => {
+                const option = document.createElement('option');
+                option.value = script.name;
+                option.textContent = script.name;
+                elemBotScripts.appendChild(option);
+            });
         })();
 
         loadSettings();
