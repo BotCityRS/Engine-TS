@@ -16686,6 +16686,9 @@ class InvInterfaceItem extends InterfaceItem {
     const optionIds = [405, 38, 422];
     this.api.doAction(optionIds[optionIndex], this.id, this.slot, this.interfaceId);
   }
+  drop() {
+    this.api.doAction(347, this.id, this.slot, this.interfaceId);
+  }
   equip() {
     this.interact(1);
   }
@@ -17172,9 +17175,12 @@ class BotAPI {
 // src/bot/scripts/BotScript.ts
 class BotScript {
   name;
-  constructor(name) {
+  isSystemScript;
+  constructor(name, isSystemScript) {
     this.name = name;
+    this.isSystemScript = isSystemScript;
   }
+  start(bot) {}
   update(bot) {}
   stop(bot) {}
 }
@@ -17244,7 +17250,7 @@ class AutoFisher extends BotScript {
   }];
   location;
   constructor(locationId) {
-    super("AutoFisher");
+    super("AutoFisher", true);
     this.timer = new Timer;
     this.location = AutoFisher.locations[locationId];
     this.timer.defineTimer("TIMER_GAME_INTERACT", TIMER_GAME_INTERACT);
@@ -17325,7 +17331,7 @@ class AutoKiller extends BotScript {
   buryBones;
   timer;
   constructor(attackStyle, npcIDs, groundItemIDs, buryBones) {
-    super("AutoKiller");
+    super("AutoKiller", true);
     this.attackStyle = attackStyle;
     this.npcIDs = npcIDs;
     this.groundItemIDs = groundItemIDs;
@@ -17456,7 +17462,7 @@ class AutoWalker extends BotScript {
   path;
   traverse;
   constructor(locationId, traverse) {
-    super("AutoFisher");
+    super("AutoFisher", true);
     this.timer = new Timer;
     this.path = AutoWalker.paths[locationId];
     this.traverse = traverse;
@@ -17523,7 +17529,7 @@ class LumbyThievSuicide extends BotScript {
   timer;
   pickupCoins;
   constructor(pickupCoins) {
-    super("LumbyThievSuicide");
+    super("LumbyThievSuicide", true);
     this.timer = new Timer;
     this.pickupCoins = pickupCoins;
     this.timer.defineTimer("TIMER_GAME_INTERACT", TIMER_GAME_INTERACT4);
@@ -17576,6 +17582,96 @@ class LumbyThievSuicide extends BotScript {
   }
 }
 
+// src/bot/scripts/ScriptLoader.ts
+class ScriptLoader extends BotScript {
+  scriptStart;
+  scriptUpdate;
+  scriptEnd;
+  constructor(scriptStart, scriptUpdate, scriptEnd) {
+    super("ScriptLoader", true);
+    this.scriptStart = scriptStart;
+    this.scriptUpdate = scriptUpdate;
+    this.scriptEnd = scriptEnd;
+    this.start = new Function("bot", scriptStart);
+    this.update = new Function("bot", scriptUpdate);
+    this.start = new Function("bot", scriptEnd);
+  }
+  static htmlSetup(base) {
+    const nameLabel = document.createElement("p");
+    nameLabel.innerText = "Name of script:";
+    const scriptName = document.createElement("input");
+    scriptName.type = "text";
+    scriptName.value = ``;
+    scriptName.id = "scriptName";
+    const htmlSetupScript = document.createElement("textarea");
+    htmlSetupScript.value = ``;
+    htmlSetupScript.id = "htmlSetupScript";
+    const buildFromHtmlScript = document.createElement("textarea");
+    buildFromHtmlScript.value = `return new this();`;
+    buildFromHtmlScript.id = "buildFromHtmlScript";
+    const startScript = document.createElement("textarea");
+    startScript.value = ``;
+    startScript.id = "startScript";
+    const updateScript = document.createElement("textarea");
+    updateScript.value = `console.info('isanim: ', bot.api.player.isAnimating());`;
+    updateScript.id = "updateScript";
+    const endScript = document.createElement("textarea");
+    endScript.value = ``;
+    endScript.id = "endScript";
+    const saveScriptButton = document.createElement("button");
+    saveScriptButton.innerText = "Save Script";
+    saveScriptButton.onclick = () => {
+      const scName = scriptName.value;
+      window.bot.saveScript(scName, startScript.value, updateScript.value, endScript.value, htmlSetupScript.value, buildFromHtmlScript.value);
+    };
+    const introLabel = document.createElement("p");
+    introLabel.innerText = `Paste your script in the input box below. It will be passed a Bot instance.
+Press "Start Bot" to load the script into the script list.
+If the name exists already it will be overwritten.`;
+    base.appendChild(document.createElement("br"));
+    base.appendChild(nameLabel);
+    base.appendChild(saveScriptButton);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(scriptName);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(htmlSetupScript);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(buildFromHtmlScript);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(startScript);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(updateScript);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(endScript);
+    base.appendChild(document.createElement("br"));
+    base.appendChild(introLabel);
+  }
+  static createScriptClass(className, startScript, updateScript, endScript, htmlSetupScript, buildFromHtmlScript) {
+    return new Function("BotScript", "startCode", "updateCode", "stopCode", "htmlSetupCode", "buildFromHtmlCode", `
+            return class ${className} extends BotScript {
+                constructor() {
+                    super('${className}', false);
+                    this.start = new Function('bot', startCode);
+                    this.update = new Function('bot', updateCode);
+                    this.stop = new Function('bot', stopCode);
+                }
+
+                static htmlSetup = new Function('base', htmlSetupCode);
+                static buildFromHtml = new Function('base', buildFromHtmlCode);
+            }
+        `)(BotScript, startScript, updateScript, endScript, htmlSetupScript, buildFromHtmlScript);
+  }
+  static buildFromHtml(base) {
+    const scriptName = document.getElementById("scriptName")?.value;
+    const startScript = document.getElementById("startScript")?.value;
+    const updateScript = document.getElementById("updateScript")?.value;
+    const endScript = document.getElementById("endScript")?.value;
+    const htmlSetupScript = document.getElementById("htmlSetupScript")?.value;
+    const buildFromHtmlScript = document.getElementById("buildFromHtmlScript")?.value;
+    return new (ScriptLoader.createScriptClass(scriptName, startScript, updateScript, endScript, htmlSetupScript, buildFromHtmlScript));
+  }
+}
+
 // src/bot/Bot.ts
 class Bot {
   client;
@@ -17586,9 +17682,66 @@ class Bot {
   constructor(client, window2) {
     window2.bot = this;
     this.client = client;
-    this.scripts = [AutoKiller, AutoFisher, LumbyThievSuicide, AutoWalker];
+    this.scripts = [ScriptLoader, AutoKiller, AutoFisher, LumbyThievSuicide, AutoWalker];
     this.api = new BotAPI(this);
     this.intervalHandle = -1;
+  }
+  setScriptChoice() {
+    const botParams = document.getElementById("botparams");
+    const target = document.getElementById("botscripts")?.value;
+    botParams.innerHTML = "";
+    for (let i = 0;i < this.scripts.length; ++i) {
+      if (this.scripts[i].name == target) {
+        this.scripts[i].htmlSetup(botParams);
+        this._injStartScript = () => {
+          this.start(this.scripts[i].buildFromHtml());
+        };
+        this._injDeleteScript = () => {
+          this.deleteScript(this.scripts[i].name);
+        };
+        document.getElementById("deleteBot").hidden = new this.scripts[i]().isSystemScript;
+        break;
+      }
+    }
+  }
+  saveScript(name, startScript, updateScript, endScript, htmlSetupScript, buildFromHtmlScript) {
+    localStorage.setItem("localScript_" + name, JSON.stringify({
+      name,
+      startScript,
+      updateScript,
+      endScript,
+      htmlSetupScript,
+      buildFromHtmlScript
+    }));
+    this.reloadScripts();
+  }
+  deleteScript(scName) {
+    localStorage.removeItem("localScript_" + scName);
+    this.reloadScripts();
+  }
+  reloadScripts() {
+    const elemBotScripts = document.getElementById("botscripts");
+    elemBotScripts?.replaceChildren();
+    for (let i = this.scripts.length - 1;i >= 0; i--) {
+      if (!new this.scripts[i]().isSystemScript) {
+        this.scripts.splice(i, 1);
+      }
+    }
+    for (let i = 0;i < localStorage.length; ++i) {
+      const lsKey = localStorage.key(i);
+      if (lsKey?.startsWith("localScript_")) {
+        const scData = JSON.parse(localStorage.getItem(lsKey));
+        const builtClass = ScriptLoader.createScriptClass(scData.name, scData.startScript, scData.updateScript, scData.endScript, scData.htmlSetupScript, scData.buildFromHtmlScript);
+        window.bot.scripts.push(builtClass);
+      }
+    }
+    this.scripts.forEach((script) => {
+      const option = document.createElement("option");
+      option.value = script.name;
+      option.textContent = script.name;
+      elemBotScripts?.appendChild(option);
+    });
+    this.setScriptChoice();
   }
   start(script) {
     this.stop();
@@ -17596,6 +17749,7 @@ class Bot {
     const tickFunc = () => {
       script.update(this);
     };
+    script.start(this);
     this.intervalHandle = setInterval(tickFunc, 100);
     console.info("Script started.");
   }
@@ -26604,4 +26758,4 @@ export {
   Client
 };
 
-//# debugId=16E476D90A0862B864756E2164756E21
+//# debugId=DF7E86A4C79AD63564756E2164756E21
