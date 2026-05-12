@@ -1,30 +1,22 @@
 import 'dotenv/config';
 import { tryParseBoolean, tryParseInt, tryParseString } from '#/util/TryParse.js';
-import { WalkTriggerSetting } from '#/util/WalkTriggerSetting.js';
+import { WalkTriggerSetting } from '#/engine/entity/WalkTriggerSetting.js';
 
 export default {
+    IS_BUN: typeof process.versions.bun !== 'undefined', // not user-configurable
+
     EASY_STARTUP: tryParseBoolean(process.env.EASY_STARTUP, false),
     WEBSITE_REGISTRATION: tryParseBoolean(process.env.WEBSITE_REGISTRATION, true),
-
-    // bundler/webrtc browser mode
-    STANDALONE_BUNDLE: tryParseBoolean(process.env.STANDALONE_BUNDLE, false),
 
     /// web server
     WEB_PORT: tryParseInt(process.env.WEB_PORT, process.platform === 'win32' || process.platform === 'darwin' ? 80 : 8888),
     WEB_ALLOWED_ORIGIN: tryParseString(process.env.WEB_ALLOWED_ORIGIN, ''),
-    // WEB_SOCKET_TOKEN_RPOTECTION tightens security somewhat by embedding a token in the
-    // rs2.cgi html which is sent on each login. if token is absent or wrong,
-    // the login is rejected. this is mainly for preventing external WebSockets
-    // that have not accessed the server's game page.
-    // NOTE: if you set protection on, and there were clients with page loaded without this option on,
-    // they wont be able to connect until they F5, as the cookie won't have been sent.
-    WEB_SOCKET_TOKEN_PROTECTION: tryParseBoolean(process.env.WEB_SOCKET_TOKEN_PROTECTECTION, false),
 
     // management server
     WEB_MANAGEMENT_PORT: tryParseInt(process.env.WEB_MANAGEMENT_PORT, 8898),
 
     /// game server
-    ENGINE_REVISION: tryParseInt(process.env.ENGINE_REVISION, 225),
+    ENGINE_REVISION: tryParseInt(process.env.ENGINE_REVISION, 254),
     // world id - offset by 9, so 1 = 10, 2 = 11, etc
     NODE_ID: tryParseInt(process.env.NODE_ID, 10),
     NODE_PORT: tryParseInt(process.env.NODE_PORT, 43594),
@@ -57,8 +49,13 @@ export default {
     // entities cap
     NODE_MAX_PLAYERS: tryParseInt(process.env.NODE_MAX_PLAYERS, 2047),
     NODE_MAX_CONNECTED: tryParseInt(process.env.NODE_MAX_CONNECTED, 1000),
-    NODE_MAX_NPCS: tryParseInt(process.env.NODE_MAX_NPCS, 8191),
+    NODE_MAX_NPCS: tryParseInt(process.env.NODE_MAX_NPCS, 16383),
     NODE_DEBUGPROC_CHAR: tryParseString(process.env.NODE_DEBUGPROC_CHAR, '~'),
+    NODE_WS_ONDEMAND: tryParseBoolean(process.env.NODE_WS_ONDEMAND, false),
+    NODE_HOP_TIME: tryParseInt(process.env.NODE_MAX_NPCS, 45000), // 45s
+    // limit login attempts
+    NODE_RATELIMIT_ADDRESS_LOGIN: tryParseInt(process.env.NODE_RATELIMIT_ADDRESS_LOGIN, 30), // ip (60s)
+    NODE_RATELIMIT_DEVICE_LOGIN: tryParseInt(process.env.NODE_RATELIMIT_DEVICE_LOGIN, 5), // uid+ip (15s)
 
     /// login server
     LOGIN_SERVER: tryParseBoolean(process.env.LOGIN_SERVER, false),
@@ -92,12 +89,9 @@ export default {
     KYSELY_VERBOSE: tryParseBoolean(process.env.KYSELY_VERBOSE, false),
 
     /// development
-    // some users may not be able to change their system PATH for this project
-    BUILD_JAVA_PATH: tryParseString(process.env.BUILD_JAVA_PATH, 'java'),
+    BUILD_VERBOSE: tryParseBoolean(process.env.BUILD_VERBOSE, false),
     // auto-build on startup
-    BUILD_STARTUP: tryParseBoolean(process.env.BUILD_STARTUP, true),
-    // auto-update compiler on startup
-    BUILD_STARTUP_UPDATE: tryParseBoolean(process.env.BUILD_STARTUP_UPDATE, true),
+    BUILD_STARTUP: tryParseBoolean(process.env.BUILD_STARTUP, false),
     // used to check if we're producing the original cache without edits
     BUILD_VERIFY: tryParseBoolean(process.env.BUILD_VERIFY, true),
     // used to keep some semblance of sanity in our folder structure

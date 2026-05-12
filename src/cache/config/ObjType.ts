@@ -25,16 +25,6 @@ export default class ObjType extends ConfigType {
         this.parse(server, jag);
     }
 
-    static async loadAsync(dir: string) {
-        const file = await fetch(`${dir}/server/obj.dat`);
-        if (!file.ok) {
-            return;
-        }
-
-        const [server, jag] = await Promise.all([file.arrayBuffer(), Jagfile.loadAsync(`${dir}/client/config`)]);
-        this.parse(new Packet(new Uint8Array(server)), jag);
-    }
-
     static parse(server: Packet, jag: Jagfile) {
         ObjType.configNames = new Map();
         ObjType.configs = [];
@@ -69,8 +59,12 @@ export default class ObjType extends ConfigType {
 
             if (!Environment.NODE_MEMBERS && config.members) {
                 config.tradeable = false;
-                config.op = null;
-                config.iop = null;
+                config.op = [null, null, 'Take', null, null];
+                config.iop = [null, null, null, null, 'Drop'];
+
+                // "Yeah, turns out some of the devs didn't realise that their 'category' triggers would be auto-ignored on F2P."
+                // be warned this means category-triggered opheld5 (drop) scripts are skipped on f2p...
+                config.category = -1;
 
                 config.params.forEach((_, key): void => {
                     if (ParamType.get(key)?.autodisable) {
@@ -154,8 +148,8 @@ export default class ObjType extends ConfigType {
     stackable = false;
     cost = 1;
     members = false;
-    op: (string | null)[] | null = null;
-    iop: (string | null)[] | null = null;
+    op: (string | null)[] = [null, null, 'Take', null, null];
+    iop: (string | null)[] = [null, null, null, null, 'Drop'];
     manwear = -1;
     manwear2 = -1;
     manwearOffsetY = 0;
@@ -172,6 +166,11 @@ export default class ObjType extends ConfigType {
     countco: Uint16Array | null = null;
     certlink = -1;
     certtemplate = -1;
+    resizex = 128;
+    resizey = 128;
+    resizez = 128;
+    ambient = 0;
+    contrast = 0;
 
     // server-side
     wearpos = -1;
@@ -208,7 +207,7 @@ export default class ObjType extends ConfigType {
         } else if (code === 11) {
             this.stackable = true;
         } else if (code === 12) {
-            this.cost = dat.g4();
+            this.cost = dat.g4s();
         } else if (code === 13) {
             this.wearpos = dat.g1();
         } else if (code === 14) {
@@ -230,14 +229,8 @@ export default class ObjType extends ConfigType {
         } else if (code === 27) {
             this.wearpos3 = dat.g1();
         } else if (code >= 30 && code < 35) {
-            if (!this.op) {
-                this.op = new Array(5).fill(null);
-            }
             this.op[code - 30] = dat.gjstr();
         } else if (code >= 35 && code < 40) {
-            if (!this.iop) {
-                this.iop = new Array(5).fill(null);
-            }
             this.iop[code - 35] = dat.gjstr();
         } else if (code === 40) {
             const count = dat.g1();
@@ -279,6 +272,16 @@ export default class ObjType extends ConfigType {
             }
             this.countobj[code - 100] = dat.g2();
             this.countco[code - 100] = dat.g2();
+        } else if (code === 110) {
+            this.resizex = dat.g2();
+        } else if (code === 111) {
+            this.resizey = dat.g2();
+        } else if (code === 112) {
+            this.resizez = dat.g2();
+        } else if (code === 113) {
+            this.ambient = dat.g1b();
+        } else if (code === 114) {
+            this.contrast = dat.g1b();
         } else if (code === 201) {
             this.respawnrate = dat.g2();
         } else if (code === 249) {

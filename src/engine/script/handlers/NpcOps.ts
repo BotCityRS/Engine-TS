@@ -11,10 +11,11 @@ import Loc from '#/engine/entity/Loc.js';
 import Npc from '#/engine/entity/Npc.js';
 import { NpcIteratorType } from '#/engine/entity/NpcIteratorType.js';
 import { NpcMode } from '#/engine/entity/NpcMode.js';
+import { NpcStat } from '#/engine/entity/NpcStat.js';
 import Obj from '#/engine/entity/Obj.js';
-import { NpcIterator } from '#/engine/script/ScriptIterators.js';
+import { NpcHuntAllCommandIterator, NpcIterator } from '#/engine/script/ScriptIterators.js';
 import { ScriptOpcode } from '#/engine/script/ScriptOpcode.js';
-import ScriptPointer, { ActiveNpc, checkedHandler } from '#/engine/script/ScriptPointer.js';
+import ScriptPointer, { ActiveNpc, ActivePlayer, checkedHandler } from '#/engine/script/ScriptPointer.js';
 import { CommandHandlers } from '#/engine/script/ScriptRunner.js';
 import ScriptState from '#/engine/script/ScriptState.js';
 import { CategoryTypeValid, check, CoordValid, DurationValid, HitTypeValid, HuntTypeValid, HuntVisValid, NpcModeValid, NpcStatValid, NpcTypeValid, NumberNotNull, ParamTypeValid, QueueValid, SpotAnimTypeValid } from '#/engine/script/ScriptValidators.js';
@@ -45,7 +46,7 @@ const NpcOps: CommandHandlers = {
         const npcType: NpcType = check(id, NpcTypeValid);
         check(duration, DurationValid);
 
-        const npc = new Npc(position.level, position.x, position.z, npcType.size, npcType.size, EntityLifeCycle.DESPAWN, World.getNextNid(), npcType.id, npcType.moverestrict, npcType.blockwalk);
+        const npc = new Npc(position.level, position.x, position.z, npcType.size, npcType.size, EntityLifeCycle.DESPAWN, World.getNextNid(), npcType.id, npcType.blockwalk);
         World.addNpc(npc, duration);
         state.activeNpc = npc;
         state.pointerAdd(ActiveNpc[state.intOperand]);
@@ -124,7 +125,7 @@ const NpcOps: CommandHandlers = {
         }
 
         state.activePlayer = player;
-        state.pointerAdd(ScriptPointer.ActivePlayer);
+        state.pointerAdd(ActivePlayer[state.intOperand]);
         state.pushInt(1);
     }),
 
@@ -249,6 +250,10 @@ const NpcOps: CommandHandlers = {
         const current = npc.levels[stat];
         const healed = current + ((constant + (base * percent) / 100) | 0);
         npc.levels[stat] = Math.min(healed, base);
+
+        if (stat === NpcStat.HITPOINTS && npc.levels[stat] >= npc.baseLevels[stat]) {
+            npc.heroPoints.clear();
+        }
     }),
 
     [ScriptOpcode.NPC_TYPE]: checkedHandler(ActiveNpc, state => {
@@ -281,6 +286,51 @@ const NpcOps: CommandHandlers = {
 
         state.activeNpc.spotanim(spotanimType.id, height, delay);
     }),
+
+    [ScriptOpcode.NPC_HUNT]: state => {
+        const [coord, distance, checkVis] = state.popInts(3);
+
+        const position: CoordGrid = check(coord, CoordValid);
+        // const npcType: NpcType = check(npc, NpcTypeValid);
+        check(distance, NumberNotNull);
+        const huntvis: HuntVis = check(checkVis, HuntVisValid);
+
+        let closestNpc: Npc | null = null;
+        let closestDistance = Number.MAX_SAFE_INTEGER;
+
+        const npcs = new NpcHuntAllCommandIterator(World.currentTick, position.level, position.x, position.z, distance, huntvis);
+
+        for (const npc of npcs) {
+            if (npc) {
+                // Picks the smallest euclidean distance
+                const npcDistance = CoordGrid.euclideanSquaredDistance(position, npc);
+                if (npcDistance <= closestDistance) {
+                    closestNpc = npc;
+                    closestDistance = npcDistance;
+                }
+            }
+        }
+        if (!closestNpc) {
+            state.pushInt(0);
+            return;
+        }
+
+        state.activeNpc = closestNpc;
+        state.pointerAdd(ActiveNpc[state.intOperand]);
+        state.pushInt(1);
+    },
+
+    // https://x.com/JagexAsh/status/1796460129430433930
+    // https://x.com/JagexAsh/status/1821236327150710829
+    [ScriptOpcode.NPC_HUNTALL]: state => {
+        const [coord, distance, checkVis] = state.popInts(3);
+
+        const position: CoordGrid = check(coord, CoordValid);
+        check(distance, NumberNotNull);
+        const huntvis: HuntVis = check(checkVis, HuntVisValid);
+
+        state.npcIterator = new NpcHuntAllCommandIterator(World.currentTick, position.level, position.x, position.z, distance, huntvis);
+    },
 
     // https://x.com/JagexAsh/status/1796460129430433930
     [ScriptOpcode.NPC_FIND]: state => {
@@ -315,6 +365,7 @@ const NpcOps: CommandHandlers = {
         state.pointerAdd(ActiveNpc[state.intOperand]);
         state.pushInt(1);
     },
+
     [ScriptOpcode.NPC_FINDCAT]: state => {
         const [coord, npcCategory, distance, checkVis] = state.popInts(4);
 
@@ -501,6 +552,9 @@ const NpcOps: CommandHandlers = {
         }
 
         state.execution = ScriptState.NPC_SUSPENDED;
+    }),
+    [ScriptOpcode.NPC_INRANGE]: checkedHandler(ActiveNpc, state => {
+        state.pushInt(state.activeNpc.targetWithinMaxRange() ? 1 : 0);
     })
 };
 

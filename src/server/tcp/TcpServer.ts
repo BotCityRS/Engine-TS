@@ -1,11 +1,11 @@
 import net from 'net';
 
 import World from '#/engine/World.js';
-import Packet from '#/io/Packet.js';
 import { LoggerEventType } from '#/server/logger/LoggerEventType.js';
 import NullClientSocket from '#/server/NullClientSocket.js';
 import TcpClientSocket from '#/server/tcp/TcpClientSocket.js';
 import Environment from '#/util/Environment.js';
+import OnDemand from '#/engine/OnDemand.js';
 
 export default class TcpServer {
     tcp: net.Server;
@@ -21,13 +21,6 @@ export default class TcpServer {
 
             const client = new TcpClientSocket(s, s.remoteAddress ?? 'unknown');
 
-            if (Environment.ENGINE_REVISION <= 225) {
-                const seed = new Packet(new Uint8Array(8));
-                seed.p4(Math.floor(Math.random() * 0x00ffffff));
-                seed.p4(Math.floor(Math.random() * 0xffffffff));
-                client.send(seed.data);
-            }
-
             s.on('data', (data: Buffer) => {
                 try {
                     if (client.state === -1 || client.remaining <= 0) {
@@ -36,7 +29,12 @@ export default class TcpServer {
                     }
 
                     client.buffer(data);
-                    World.onClientData(client);
+
+                    if (client.state === 0) {
+                        World.onClientData(client);
+                    } else {
+                        OnDemand.onClientData(client);
+                    }
                 } catch (_) {
                     client.terminate();
                 }

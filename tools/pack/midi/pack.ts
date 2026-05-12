@@ -1,35 +1,20 @@
 import fs from 'fs';
+import path from 'path';
 
-import BZip2 from '#/io/BZip2.js';
+import { compressGz } from '#/io/GZip.js';
 import Environment from '#/util/Environment.js';
-import { shouldBuild } from '#/util/PackFile.js';
+import FileStream from '#/io/FileStream.js';
+import { MidiPack } from '#tools/pack/PackFile.js';
+import { listFilesExt } from '#tools/pack/Parse.js';
 
-export function packClientMusic() {
-    if (!shouldBuild(`${Environment.BUILD_SRC_DIR}/jingles`, '', 'data/pack/client/jingles')) {
-        return;
+export function packClientMidi(cache: FileStream) {
+    const midis = [...listFilesExt(`${Environment.BUILD_SRC_DIR}/jingles`, '.mid'), ...listFilesExt(`${Environment.BUILD_SRC_DIR}/songs`, '.mid')];
+    for (const file of midis) {
+        const basename = path.basename(file);
+        const id = MidiPack.getByName(basename.substring(0, basename.lastIndexOf('.')));
+        const data = fs.readFileSync(file);
+        if (data.length) {
+            cache.write(3, id, compressGz(data)!, 1);
+        }
     }
-
-    fs.mkdirSync('data/pack/client/jingles', { recursive: true });
-    fs.readdirSync(`${Environment.BUILD_SRC_DIR}/jingles`).forEach(f => {
-        // TODO: mtime-based check
-        if (fs.existsSync(`data/pack/client/jingles/${f}`)) {
-            return;
-        }
-
-        const data = fs.readFileSync(`${Environment.BUILD_SRC_DIR}/jingles/${f}`);
-        fs.writeFileSync(`data/pack/client/jingles/${f}`, BZip2.compress(data, true));
-    });
-
-    // ----
-
-    fs.mkdirSync('data/pack/client/songs', { recursive: true });
-    fs.readdirSync(`${Environment.BUILD_SRC_DIR}/songs`).forEach(f => {
-        // TODO: mtime-based check
-        if (fs.existsSync(`data/pack/client/songs/${f}`)) {
-            return;
-        }
-
-        const data = fs.readFileSync(`${Environment.BUILD_SRC_DIR}/songs/${f}`);
-        fs.writeFileSync(`data/pack/client/songs/${f}`, BZip2.compress(data, true));
-    });
 }

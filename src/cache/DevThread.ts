@@ -2,15 +2,16 @@ import fs from 'fs';
 import path from 'path';
 import { parentPort } from 'worker_threads';
 
-import { packClient, packServer } from '#/cache/PackAll.js';
+import { packAll } from '#tools/pack/PackAll.js';
 import Environment from '#/util/Environment.js';
 
 // todo: this file queue is so the rebuild/reload process can utilize the additional context
 let processNextQueue: Set<string> = new Set();
-let processNextTimeout: Timer | null = null;
+let processNextTimeout: NodeJS.Timeout | null = null;
 
 // prevent other file change events from building multiple times
 let active = false;
+const watchedDirs = new Set<string>();
 
 async function processChangedFiles() {
     active = true;
@@ -21,8 +22,8 @@ async function processChangedFiles() {
     processNextQueue = new Set();
 
     try {
-        await packServer();
-        await packClient();
+        const modelFlags: number[] = [];
+        await packAll(modelFlags);
 
         if (parentPort) {
             parentPort.postMessage({
@@ -37,6 +38,8 @@ async function processChangedFiles() {
                 error: err instanceof Error ? err.message : undefined
             });
         }
+
+        // console.log(err);
     }
 
     processNextTimeout = null;
@@ -64,23 +67,39 @@ function trackFileChange(filename: string) {
 }
 
 function trackDir(dir: string) {
+    if (watchedDirs.has(dir)) {
+        return;
+    }
+
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+
+    watchedDirs.add(dir);
+    fs.watch(dir, (_event, filename) => {
+        if (!filename) {
+            return;
+        }
+
+        const full = path.join(dir, filename.toString());
+        trackFileChange(full);
+
+        try {
+            if (fs.statSync(full).isDirectory()) {
+                trackDir(full);
+            }
+        } catch {
+            // The path may have been removed or replaced between the watch event and stat.
+        }
+    });
+
     const files = fs.readdirSync(dir);
 
     for (const file of files) {
         const full = path.join(dir, file);
-        if (!fs.statSync(full).isDirectory()) {
-            continue;
+        if (fs.statSync(full).isDirectory()) {
+            trackDir(full);
         }
-
-        fs.watch(full, (_event, filename) => {
-            if (!filename) {
-                return;
-            }
-
-            trackFileChange(path.join(full, filename));
-        });
-
-        trackDir(full);
     }
 }
 
@@ -94,26 +113,13 @@ if (parentPort) {
 
 trackDir(`${Environment.BUILD_SRC_DIR}/maps`);
 trackDir(`${Environment.BUILD_SRC_DIR}/songs`);
-
-// title.jag
+trackDir(`${Environment.BUILD_SRC_DIR}/jingles`);
 trackDir(`${Environment.BUILD_SRC_DIR}/binary`);
 trackDir(`${Environment.BUILD_SRC_DIR}/fonts`);
 trackDir(`${Environment.BUILD_SRC_DIR}/title`);
-
-// config.jag, interface.jag
 trackDir(`${Environment.BUILD_SRC_DIR}/scripts`);
-
-// media.jag
 trackDir(`${Environment.BUILD_SRC_DIR}/sprites`);
-
-// models.jag
 trackDir(`${Environment.BUILD_SRC_DIR}/models`);
-
-// textures.jag
 trackDir(`${Environment.BUILD_SRC_DIR}/textures`);
-
-// sounds.jag
 trackDir(`${Environment.BUILD_SRC_DIR}/synth`);
-
-// wordenc.jag
 trackDir(`${Environment.BUILD_SRC_DIR}/wordenc`);

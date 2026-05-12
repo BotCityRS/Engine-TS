@@ -2,7 +2,6 @@ import path from 'path';
 
 import { ScriptOpcode } from '#/engine/script/ScriptOpcode.js';
 import Packet from '#/io/Packet.js';
-import Environment from '#/util/Environment.js';
 
 export interface ScriptInfo {
     scriptName: string;
@@ -74,7 +73,7 @@ export default class ScriptFile {
         stream.pos = trailerPos;
 
         const script = new ScriptFile(id);
-        const _instructions = stream.g4(); // we don't need to preallocate anything in JS, but still need to read it
+        const _instructions = stream.g4s(); // we don't need to preallocate anything in JS, but still need to read it
         script.intLocalCount = stream.g2();
         script.stringLocalCount = stream.g2();
         script.intArgCount = stream.g2();
@@ -86,8 +85,8 @@ export default class ScriptFile {
             const table: SwitchTable = [];
 
             for (let j = 0; j < count; j++) {
-                const key = stream.g4();
-                const offset = stream.g4();
+                const key = stream.g4s();
+                const offset = stream.g4s();
                 table[key] = offset;
             }
 
@@ -97,7 +96,7 @@ export default class ScriptFile {
         stream.pos = 0;
         script.info.scriptName = stream.gjstr(0);
         script.info.sourceFilePath = stream.gjstr(0);
-        script.info.lookupKey = stream.g4();
+        script.info.lookupKey = stream.g4s();
         const parameterTypeCount = stream.g1();
         for (let i = 0; i < parameterTypeCount; i++) {
             script.info.parameterTypes.push(stream.g1());
@@ -105,8 +104,8 @@ export default class ScriptFile {
 
         const lineNumberTableLength = stream.g2();
         for (let i = 0; i < lineNumberTableLength; i++) {
-            script.info.pcs.push(stream.g4());
-            script.info.lines.push(stream.g4());
+            script.info.pcs.push(stream.g4s());
+            script.info.lines.push(stream.g4s());
         }
 
         let instr = 0;
@@ -116,7 +115,7 @@ export default class ScriptFile {
             if (opcode === ScriptOpcode.PUSH_CONSTANT_STRING) {
                 script.stringOperands[instr] = stream.gjstr(0);
             } else if (isLargeOperand(opcode)) {
-                script.intOperands[instr] = stream.g4();
+                script.intOperands[instr] = stream.g4s();
             } else {
                 script.intOperands[instr] = stream.g1();
             }
@@ -136,11 +135,7 @@ export default class ScriptFile {
     }
 
     get fileName() {
-        if (Environment.STANDALONE_BUNDLE) {
-            return this.info.sourceFilePath.split('/').pop()?.split('\\').pop();
-        } else {
-            return path.basename(this.info.sourceFilePath);
-        }
+        return path.basename(this.info.sourceFilePath);
     }
 
     lineNumber(pc: number) {

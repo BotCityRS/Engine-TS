@@ -35,8 +35,8 @@
         }
 
         canvas {
-            width: 789px;
-            height: 532px;
+            width: 765px;
+            height: 503px;
             display: block;
             /* touch-action: none; */
             -webkit-touch-callout: none;
@@ -48,6 +48,7 @@
             outline: none;
             -webkit-tap-highlight-color: rgba(255, 255, 255, 0);
             z-index: -1;
+            image-rendering: pixelated;
         }
 
         html:-webkit-full-screen {
@@ -102,15 +103,18 @@
     </style>
 
     <script>
+        function isTouchDevice() {
+            return (('ontouchstart' in window) ||
+                (navigator.maxTouchPoints > 0) ||
+                (navigator.msMaxTouchPoints > 0));
+        }
+
         function isMobile() {
-            if (/Mobi|Android|iPhone|iPad|Windows Phone|Mobile/i.test(navigator.userAgent)) {
+            if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|Windows Phone|Mobile/i.test(navigator.userAgent)) {
                 return true;
             }
-            const isiOSSafari = navigator.maxTouchPoints !== undefined && navigator.maxTouchPoints > 2 && navigator.standalone !== undefined;
-            if (isiOSSafari) {
-                return true;
-            }
-            return false;
+
+            return isTouchDevice();
         }
 
         function toggleFullscreen() {
@@ -225,15 +229,13 @@
                 case '1':
                 case '2':
                 case '3':
-                    canvas.style.width = (789 * parseInt(size)) + 'px';
-                    canvas.style.height = (532 * parseInt(size)) + 'px';
+                    canvas.style.width = (765 * parseInt(size)) + 'px';
+                    canvas.style.height = (503 * parseInt(size)) + 'px';
                     canvas.style.maxWidth = 'none';
                     break;
                 case 'auto':
                     canvas.style.width = '100%';
                     canvas.style.height = 'auto';
-                    let maxWidth = ((window.innerHeight - 120) / 532) * 789;
-                    canvas.style.maxWidth = maxWidth + 'px';
                     break;
             }
             document.getElementById('size').value = size;
@@ -263,7 +265,7 @@
 <body>
     <center>
         <div id="game">
-            <canvas id="canvas" width="789" height="532">
+            <canvas id="canvas" width="765" height="503">
                 Your browser is not capable of running our web client.
             </canvas>
         </div>
@@ -330,10 +332,6 @@
 
     <script type="module">
         import { Client } from './client/client.js';
-
-        <% if (per_deployment_token) { %>
-            document.cookie = 'per_deployment_token="<%= per_deployment_token %>"; Domain=' + window.location.hostname;
-        <% } %>
 
         (() => {
             new Client(<%= nodeid %>, <%= lowmem %>, <%= members %>, window);

@@ -6,21 +6,19 @@ import InvType from '#/cache/config/InvType.js';
 import { CoordGrid } from '#/engine/CoordGrid.js';
 import { ModalState } from '#/engine/entity/ModalState.js';
 import Player from '#/engine/entity/Player.js';
-import { WealthEventParams } from '#/engine/entity/tracking/WealthEvent.js';
 import World from '#/engine/World.js';
 import { WorldStat } from '#/engine/WorldStat.js';
 import Zone from '#/engine/zone/Zone.js';
 import Packet from '#/io/Packet.js';
-import ClientProtCategory from '#/network/game/client/codec/ClientProtCategory.js';
-import ClientProtProvider from '#/network/game/client/codec/ClientProtProvider.js';
-import MessageEncoder from '#/network/game/server/codec/MessageEncoder.js';
-import ServerProtProvider from '#/network/game/server/codec/ServerProtProvider.js';
+import ClientGameProtCategory from '#/network/game/client/ClientGameProtCategory.js';
+import ServerGameMessageEncoder from '#/network/game/server/ServerGameMessageEncoder.js';
 import CamLookAt from '#/network/game/server/model/CamLookAt.js';
 import CamMoveTo from '#/network/game/server/model/CamMoveTo.js';
 import IfClose from '#/network/game/server/model/IfClose.js';
 import IfOpenChat from '#/network/game/server/model/IfOpenChat.js';
 import IfOpenMain from '#/network/game/server/model/IfOpenMain.js';
 import IfOpenMainSide from '#/network/game/server/model/IfOpenMainSide.js';
+import IfOpenOverlay from '#/network/game/server/model/IfOpenOverlay.js';
 import IfOpenSide from '#/network/game/server/model/IfOpenSide.js';
 import Logout from '#/network/game/server/model/Logout.js';
 import NpcInfo from '#/network/game/server/model/NpcInfo.js';
@@ -30,11 +28,13 @@ import UpdateInvFull from '#/network/game/server/model/UpdateInvFull.js';
 import UpdateRunEnergy from '#/network/game/server/model/UpdateRunEnergy.js';
 import UpdateRunWeight from '#/network/game/server/model/UpdateRunWeight.js';
 import UpdateStat from '#/network/game/server/model/UpdateStat.js';
-import OutgoingMessage from '#/network/game/server/OutgoingMessage.js';
+import ServerGameMessage from '#/network/game/server/ServerGameMessage.js';
 import ClientSocket from '#/server/ClientSocket.js';
-import { LoggerEventType } from '#/server/logger/LoggerEventType.js';
 import NullClientSocket from '#/server/NullClientSocket.js';
 import { printError } from '#/util/Logger.js';
+import ClientGameProt from '#/network/game/client/ClientGameProt.js';
+import ClientGameProtRepository from '#/network/game/client/ClientGameProtRepository.js';
+import ServerGameProtRepository from '#/network/game/server/ServerGameProtRepository.js';
 
 export class NetworkPlayer extends Player {
     client: ClientSocket;
@@ -49,6 +49,7 @@ export class NetworkPlayer extends Player {
         super(username, username37, hash64);
 
         this.client = client;
+        this.session = client.uuid;
         this.client.player = this;
     }
 
@@ -66,7 +67,12 @@ export class NetworkPlayer extends Player {
         this.restrictedLimit = 0;
 
         const bytesStart = this.client.in.pos;
-        while (this.userLimit < ClientProtCategory.USER_EVENT.limit && this.clientLimit < ClientProtCategory.CLIENT_EVENT.limit && this.restrictedLimit < ClientProtCategory.RESTRICTED_EVENT.limit && this.read()) {
+        while (
+            this.userLimit < ClientGameProtCategory.USER_EVENT.limit &&
+            this.clientLimit < ClientGameProtCategory.CLIENT_EVENT.limit &&
+            this.restrictedLimit < ClientGameProtCategory.RESTRICTED_EVENT.limit &&
+            this.read()
+        ) {
             // empty
         }
         const bytesRead = bytesStart - this.client.in.pos;
@@ -96,7 +102,7 @@ export class NetworkPlayer extends Player {
                 this.client.opcode = NetworkPlayer.inBuf.g1();
             }
 
-            const packetType = ClientProtProvider.ClientProt.byId[this.client.opcode];
+            const packetType = ClientGameProt.byId[this.client.opcode];
             if (!packetType) {
                 this.client.opcode = -1;
                 this.client.close();
@@ -129,19 +135,22 @@ export class NetworkPlayer extends Player {
         NetworkPlayer.inBuf.pos = 0;
         this.client.read(NetworkPlayer.inBuf.data, 0, this.client.waiting);
 
-        const packetType = ClientProtProvider.ClientProt.byId[this.client.opcode];
-        const decoder = ClientProtProvider.ClientProtRepository.getDecoder(packetType);
+        const packetType = ClientGameProt.byId[this.client.opcode];
+        if (packetType) {
+            const decoder = ClientGameProtRepository.getDecoder(packetType);
 
-        if (decoder) {
-            const message = decoder.decode(NetworkPlayer.inBuf, this.client.waiting);
-            const success: boolean = ClientProtProvider.ClientProtRepository.getHandler(packetType)?.handle(message, this) ?? false;
-            // todo: move out of model
-            if (success && message.category === ClientProtCategory.USER_EVENT) {
-                this.userLimit++;
-            } else if (message.category === ClientProtCategory.RESTRICTED_EVENT) {
-                this.restrictedLimit++;
-            } else {
-                this.clientLimit++;
+            if (decoder) {
+                const message = decoder.decode(NetworkPlayer.inBuf, this.client.waiting);
+                const success: boolean = ClientGameProtRepository.getHandler(packetType)?.handle(message, this) ?? false;
+
+                // todo: move out of model
+                if (success && message.category === ClientGameProtCategory.USER_EVENT) {
+                    this.userLimit++;
+                } else if (message.category === ClientGameProtCategory.RESTRICTED_EVENT) {
+                    this.restrictedLimit++;
+                } else {
+                    this.clientLimit++;
+                }
             }
         }
 
@@ -179,22 +188,18 @@ export class NetworkPlayer extends Player {
             this.refreshModal = false;
         }
 
-        for (const message of this.buffer) {
-            this.writeInner(message);
+        if (this.overlay !== this.lastOverlay) {
+            this.write(new IfOpenOverlay(this.overlay));
+            this.lastOverlay = this.overlay;
         }
-
-        this.buffer = [];
     }
 
-    writeInner(message: OutgoingMessage): void {
+    writeInner(message: ServerGameMessage): void {
         const client = this.client;
-        if (!client) {
-            return;
-        }
 
-        const encoder: MessageEncoder<OutgoingMessage> | undefined = ServerProtProvider.ServerProtRepository.getEncoder(message);
+        const encoder: ServerGameMessageEncoder<ServerGameMessage> | undefined = ServerGameProtRepository.getEncoder(message);
         if (!encoder) {
-            printError(`No encoder for message ${message.constructor.name}`);
+            printError(`No encoder for ${message.constructor.name}`);
             return;
         }
 
@@ -214,9 +219,9 @@ export class NetworkPlayer extends Player {
         }
 
         if (prot.length === -1) {
-            buf.p1(0);
+            buf.pos += 1;
         } else if (prot.length === -2) {
-            buf.p2(0);
+            buf.pos += 2;
         }
 
         const start: number = buf.pos;
@@ -228,7 +233,7 @@ export class NetworkPlayer extends Player {
             buf.psize2(buf.pos - start);
         }
 
-        this.client.send(buf.data.slice(0, buf.pos));
+        this.client.send(buf.data.subarray(0, buf.pos));
         World.cycleStats[WorldStat.BANDWIDTH_OUT] += buf.pos;
     }
 
@@ -240,22 +245,9 @@ export class NetworkPlayer extends Player {
         this.client.terminate();
     }
 
-    override addSessionLog(event_type: LoggerEventType, message: string, ...args: string[]): void {
-        World.addSessionLog(event_type, this.account_id, isClientConnected(this) ? this.client.uuid : 'disconnected', CoordGrid.packCoord(this.level, this.x, this.z), message, ...args);
-    }
-
-    override addWealthEvent(event: WealthEventParams) {
-        World.addWealthEvent({
-            coord: CoordGrid.packCoord(this.level, this.x, this.z),
-            account_id: this.account_id,
-            account_session: isClientConnected(this) ? this.client.uuid : 'disconnected',
-            ...event
-        });
-    }
-
     updateMap() {
         // update the camera after rebuild.
-        for (let info = this.cameraPackets.head(); info !== null; info = this.cameraPackets.next()) {
+        for (const info of this.cameraPackets.all()) {
             const localX = info.camX - CoordGrid.zoneOrigin(this.originX);
             const localZ = info.camZ - CoordGrid.zoneOrigin(this.originZ);
             if (info.type === 0) {
@@ -302,11 +294,11 @@ export class NetworkPlayer extends Player {
     }
 
     updatePlayers() {
-        this.write(new PlayerInfo(rsbuf.playerInfo(this.client.out.pos, this.pid, Math.abs(this.lastTickX - this.x), Math.abs(this.lastTickZ - this.z), this.lastLevel !== this.level)));
+        this.write(new PlayerInfo(rsbuf.playerInfo(this.client.out.pos, this.slot, Math.abs(this.lastTickX - this.x), Math.abs(this.lastTickZ - this.z), this.lastLevel !== this.level)));
     }
 
     updateNpcs() {
-        this.write(new NpcInfo(rsbuf.npcInfo(this.client.out.pos, this.pid, Math.abs(this.lastTickX - this.x), Math.abs(this.lastTickZ - this.z), this.lastLevel !== this.level)));
+        this.write(new NpcInfo(rsbuf.npcInfo(this.client.out.pos, this.slot, Math.abs(this.lastTickX - this.x), Math.abs(this.lastTickZ - this.z), this.lastLevel !== this.level)));
     }
 
     updateZones() {
@@ -410,24 +402,4 @@ export class NetworkPlayer extends Player {
 
 export function isClientConnected(player: Player): player is NetworkPlayer {
     return player instanceof NetworkPlayer && !(player.client instanceof NullClientSocket);
-}
-
-export function isBufferFull(player: Player): boolean {
-    if (!isClientConnected(player)) {
-        return false;
-    }
-
-    let total = 0;
-
-    for (const message of player.buffer) {
-        const encoder: MessageEncoder<OutgoingMessage> | undefined = ServerProtProvider.ServerProtRepository.getEncoder(message);
-        if (!encoder) {
-            return true;
-        }
-
-        const prot = encoder.prot;
-        total += 1 + (prot.length === -1 ? 1 : prot.length === -2 ? 2 : 0) + encoder.test(message);
-    }
-
-    return total >= 5000;
 }

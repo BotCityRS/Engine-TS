@@ -1,12 +1,9 @@
-import { ServerProtPriority } from '#/network/game/server/codec/ServerProtPriority.js';
-import OutgoingMessage from '#/network/game/server/OutgoingMessage.js';
+import ServerGameMessage from '#/network/game/server/ServerGameMessage.js';
 
-export default class MidiJingle extends OutgoingMessage {
-    priority = ServerProtPriority.BUFFERED;
-
+export default class MidiJingle extends ServerGameMessage {
     constructor(
-        readonly delay: number,
-        readonly data: Uint8Array
+        readonly id: number,
+        readonly delay: number
     ) {
         super();
     }

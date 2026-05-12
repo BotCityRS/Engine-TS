@@ -3,16 +3,16 @@ import { Interaction } from '#/engine/entity/Interaction.js';
 import { NetworkPlayer } from '#/engine/entity/NetworkPlayer.js';
 import ServerTriggerType from '#/engine/script/ServerTriggerType.js';
 import World from '#/engine/World.js';
-import MessageHandler from '#/network/game/client/handler/MessageHandler.js';
+import ClientGameMessageHandler from '#/network/game/client/ClientGameMessageHandler.js';
 import OpLoc from '#/network/game/client/model/OpLoc.js';
 import UnsetMapFlag from '#/network/game/server/model/UnsetMapFlag.js';
 
-
-export default class OpLocHandler extends MessageHandler<OpLoc> {
+export default class OpLocHandler extends ClientGameMessageHandler<OpLoc> {
     handle(message: OpLoc, player: NetworkPlayer): boolean {
         const { x, z, loc: locId } = message;
 
         if (player.delayed) {
+            // normal: cannot interact while delayed
             player.write(new UnsetMapFlag());
             return false;
         }
@@ -22,40 +22,28 @@ export default class OpLocHandler extends MessageHandler<OpLoc> {
         const absTopZ = player.originZ + 52;
         const absBottomZ = player.originZ - 52;
         if (x < absLeftX || x > absRightX || z < absBottomZ || z > absTopZ) {
+            // bad client: tile is not visible on client
             player.write(new UnsetMapFlag());
-            player.clearPendingAction();
             return false;
         }
 
         const loc = World.getLoc(x, z, player.level, locId);
         if (!loc) {
+            // bad client or lag: loc does not exist
             player.write(new UnsetMapFlag());
-            player.clearPendingAction();
             return false;
         }
 
-        const locType = LocType.get(loc.type);
-        if (!locType.op || !locType.op[message.op - 1]) {
+        const locType = LocType.get(locId);
+        if (!locType.op || locType.op[message.op - 1] === null || locType.op[message.op - 1] === 'hidden') {
+            // bad client: not a valid loc option
             player.write(new UnsetMapFlag());
-            player.clearPendingAction();
             return false;
         }
 
-        let mode: ServerTriggerType;
-        if (message.op === 1) {
-            mode = ServerTriggerType.APLOC1;
-        } else if (message.op === 2) {
-            mode = ServerTriggerType.APLOC2;
-        } else if (message.op === 3) {
-            mode = ServerTriggerType.APLOC3;
-        } else if (message.op === 4) {
-            mode = ServerTriggerType.APLOC4;
-        } else {
-            mode = ServerTriggerType.APLOC5;
-        }
-
+        const trigger: ServerTriggerType = ServerTriggerType.APLOC1 + (message.op - 1);
         player.clearPendingAction();
-        player.setInteraction(Interaction.ENGINE, loc, mode);
+        player.setInteraction(Interaction.ENGINE, loc, trigger);
         player.opcalled = true;
         return true;
     }

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import zlib from 'zlib';
 
 import Packet from '#/io/Packet.js';
 import RandomAccessFile from '#/util/RandomAccessFile.js';
@@ -7,14 +8,19 @@ export default class FileStream {
     dat: RandomAccessFile;
     idx: RandomAccessFile[] = [];
 
+    discardPacked: boolean = false;
+    packed: Uint8Array[][] = [];
+
     constructor(dir: string, createNew: boolean = false, readOnly: boolean = false) {
-        if (createNew && fs.existsSync(`${dir}/main_file_cache.dat`)) {
-            fs.unlinkSync(`${dir}/main_file_cache.dat`);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
+        if (createNew || !fs.existsSync(`${dir}/main_file_cache.dat`)) {
+            fs.writeFileSync(`${dir}/main_file_cache.dat`, '');
 
             for (let i: number = 0; i <= 4; i++) {
-                if (fs.existsSync(`${dir}/main_file_cache.idx${i}`)) {
-                    fs.unlinkSync(`${dir}/main_file_cache.idx${i}`);
-                }
+                fs.writeFileSync(`${dir}/main_file_cache.idx${i}`, '');
             }
         }
 
@@ -22,6 +28,7 @@ export default class FileStream {
 
         for (let i: number = 0; i <= 4; i++) {
             this.idx[i] = new RandomAccessFile(`${dir}/main_file_cache.idx${i}`, readOnly);
+            this.packed[i] = [];
         }
     }
 
@@ -33,20 +40,24 @@ export default class FileStream {
         return this.idx[index].length / 6;
     }
 
-    read(index: number, file: number): Uint8Array | null {
+    read(archive: number, file: number, decompress: boolean = false): Uint8Array | null {
         if (!this.dat) {
             return null;
         }
 
-        if (index < 0 || index >= this.idx.length || !this.idx[index]) {
+        if (archive < 0 || archive >= this.idx.length || !this.idx[archive]) {
             return null;
         }
 
-        if (file < 0 || file >= this.count(index)) {
+        if (file < 0 || file >= this.count(archive)) {
             return null;
         }
 
-        const idx: RandomAccessFile = this.idx[index];
+        if (this.packed[archive][file]) {
+            return this.packed[archive][file];
+        }
+
+        const idx: RandomAccessFile = this.idx[archive];
         idx.pos = file * 6;
         const idxHeader: Packet = idx.gPacket(6);
 
@@ -80,7 +91,7 @@ export default class FileStream {
             const nextSector: number = header.g3();
             const sectorIndex: number = header.g1();
 
-            if (file !== sectorFile || part !== sectorPart || index !== sectorIndex - 1) {
+            if (file !== sectorFile || part !== sectorPart || archive !== sectorIndex - 1) {
                 return null;
             }
 
@@ -93,10 +104,22 @@ export default class FileStream {
             sector = nextSector;
         }
 
-        return data.data;
+        if (!decompress) {
+            if (!this.discardPacked) {
+                this.packed[archive][file] = data.data;
+            }
+
+            return data.data;
+        }
+
+        if (archive === 0) {
+            return data.data;
+        } else {
+            return new Uint8Array(zlib.gunzipSync(data.data));
+        }
     }
 
-    write(index: number, file: number, data: Uint8Array | Buffer | Packet, overwrite: boolean = false): boolean {
+    write(archive: number, file: number, data: Uint8Array, version: number = 0): boolean {
         if (data instanceof Packet) {
             data = data.data;
         }
@@ -105,28 +128,22 @@ export default class FileStream {
             return false;
         }
 
-        if (index < 0 || index > this.idx.length || !this.idx[index]) {
+        if (archive < 0 || archive > this.idx.length || !this.idx[archive] || file < 0) {
             return false;
         }
 
-        const idx: RandomAccessFile = this.idx[index];
-        let sector: number;
+        if (version !== 0) {
+            const temp = new Uint8Array(data.length + 2);
+            temp.set(data, 0);
+            temp[temp.length - 2] = version >> 8;
+            temp[temp.length - 1] = version;
+            data = temp;
+        }
 
-        if (overwrite) {
-            idx.pos = file * 6;
-            const idxHeader: Packet = idx.gPacket(6);
-            idxHeader.pos = 3;
-            sector = idxHeader.g3();
-
-            if (sector <= 0 || sector > this.dat.length / 520) {
-                return false;
-            }
-        } else {
-            sector = Math.trunc((this.dat.length + 519) / 520);
-
-            if (sector === 0) {
-                sector = 1;
-            }
+        const idx: RandomAccessFile = this.idx[archive];
+        let sector = Math.trunc((this.dat.length + 519) / 520);
+        if (sector === 0) {
+            sector = 1;
         }
 
         idx.pos = file * 6;
@@ -137,36 +154,13 @@ export default class FileStream {
 
         let written: number = 0;
         for (let part: number = 0; written < data.length; part++) {
-            let nextSector: number = 0;
-
-            if (overwrite) {
-                this.dat.pos = sector * 520;
-                const header: Packet = this.dat.gPacket(8);
-                const sectorFile: number = header.g2();
-                const sectorPart: number = header.g2();
-                nextSector = header.g3();
-                const sectorIndex: number = header.g1();
-
-                if (sectorFile !== file || sectorPart !== part || sectorIndex !== index - 1) {
-                    return false;
-                }
-
-                if (nextSector < 0 || nextSector > this.dat.length / 520) {
-                    return false;
-                }
+            let nextSector = Math.trunc((this.dat.length + 519) / 520);
+            if (nextSector === 0) {
+                nextSector++;
             }
 
-            if (nextSector === 0) {
-                overwrite = false;
-                nextSector = Math.trunc((this.dat.length + 519) / 520);
-
-                if (nextSector === 0) {
-                    nextSector++;
-                }
-
-                if (nextSector === sector) {
-                    nextSector++;
-                }
+            if (nextSector === sector) {
+                nextSector++;
             }
 
             if (data.length - written <= 512) {
@@ -178,7 +172,7 @@ export default class FileStream {
             header.p2(file);
             header.p2(part);
             header.p3(nextSector);
-            header.p1(index + 1);
+            header.p1(archive + 1);
             this.dat.pdata(header);
 
             let available: number = data.length - written;
@@ -189,6 +183,41 @@ export default class FileStream {
             this.dat.pdata(data.subarray(written, written + available));
             written += available;
             sector = nextSector;
+        }
+
+        return true;
+    }
+
+    has(archive: number, file: number): boolean {
+        if (!this.dat) {
+            return false;
+        }
+
+        if (archive < 0 || archive >= this.idx.length || !this.idx[archive]) {
+            return false;
+        }
+
+        if (file < 0 || file >= this.count(archive)) {
+            return false;
+        }
+
+        if (this.packed[archive][file]) {
+            return true;
+        }
+
+        const idx: RandomAccessFile = this.idx[archive];
+        idx.pos = file * 6;
+        const idxHeader: Packet = idx.gPacket(6);
+
+        const size: number = idxHeader.g3();
+        const sector: number = idxHeader.g3();
+
+        if (size > 2000000) {
+            return false;
+        }
+
+        if (sector <= 0 || sector > this.dat.length / 520) {
+            return false;
         }
 
         return true;

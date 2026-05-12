@@ -3,7 +3,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { db, toDbDate } from '#/db/query.js';
 import { FriendServerRepository } from '#/server/friend/FriendServerRepository.js';
 import InternalClient from '#/server/InternalClient.js';
-import { ChatModePrivate } from '#/util/ChatModes.js';
+import { ChatModePrivate } from '#/engine/entity/ChatModes.js';
 import Environment from '#/util/Environment.js';
 import { fromBase37, toBase37 } from '#/util/JString.js';
 import { printInfo } from '#/util/Logger.js';
@@ -61,8 +61,9 @@ const WORLD_PLAYER_LIMIT = 2000;
  */
 export class FriendServer {
     private server: WebSocketServer;
-
-    private repository: FriendServerRepository = new FriendServerRepository();
+    
+    private profile: string = Environment.NODE_PROFILE;
+    private repository: FriendServerRepository = new FriendServerRepository(this.profile);
 
     /**
      * socketByWorld[worldId] = socket
@@ -92,27 +93,22 @@ export class FriendServer {
                         }
 
                         world = message.world as number;
+                        const profile = message.profile as string;
 
-                        if (this.socketByWorld[world]) {
-                            this.socketByWorld[world].terminate();
+                        if (profile === undefined || profile !== this.profile) {
+                            socket.close();
+                            console.error(`[Friends]: World ${world} tried to connect with incorrect profile: ${profile}`);
+                            return;
                         }
 
-                        this.socketByWorld[world] = socket;
-
-                        this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                        this.initializeWorld(world, socket);
 
                         // printDebug(`[Friends]: World ${world} connected`);
                     } else if (type === FriendsClientOpcodes.PLAYER_LOGIN) {
                         if (world === null) {
                             world = message.world as number;
 
-                            if (this.socketByWorld[world]) {
-                                this.socketByWorld[world].terminate();
-                            }
-
-                            this.socketByWorld[world] = socket;
-
-                            this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                            this.initializeWorld(world, socket);
 
                             // console.error('[Friends]: Received PLAYER_LOGIN before WORLD_CONNECT');
                             // return;
@@ -148,13 +144,7 @@ export class FriendServer {
                         if (world === null) {
                             world = message.world as number;
 
-                            if (this.socketByWorld[world]) {
-                                this.socketByWorld[world].terminate();
-                            }
-
-                            this.socketByWorld[world] = socket;
-
-                            this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                            this.initializeWorld(world, socket);
 
                             // console.error('[Friends]: Received PLAYER_LOGOUT before WORLD_CONNECT');
                             // return;
@@ -173,13 +163,7 @@ export class FriendServer {
                         if (world === null) {
                             world = message.world as number;
 
-                            if (this.socketByWorld[world]) {
-                                this.socketByWorld[world].terminate();
-                            }
-
-                            this.socketByWorld[world] = socket;
-
-                            this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                            this.initializeWorld(world, socket);
 
                             // console.error('[Friends]: Received PLAYER_CHAT_SETMODE before WORLD_CONNECT');
                             // return;
@@ -202,13 +186,7 @@ export class FriendServer {
                         if (world === null) {
                             world = message.world as number;
 
-                            if (this.socketByWorld[world]) {
-                                this.socketByWorld[world].terminate();
-                            }
-
-                            this.socketByWorld[world] = socket;
-
-                            this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                            this.initializeWorld(world, socket);
 
                             // console.error('[Friends]: Received FRIENDLIST_ADD before WORLD_CONNECT');
                             // return;
@@ -228,13 +206,7 @@ export class FriendServer {
                         if (world === null) {
                             world = message.world as number;
 
-                            if (this.socketByWorld[world]) {
-                                this.socketByWorld[world].terminate();
-                            }
-
-                            this.socketByWorld[world] = socket;
-
-                            this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                            this.initializeWorld(world, socket);
 
                             // console.error('[Friends]: Received FRIENDLIST_DEL before WORLD_CONNECT');
                             // return;
@@ -251,13 +223,7 @@ export class FriendServer {
                         if (world === null) {
                             world = message.world as number;
 
-                            if (this.socketByWorld[world]) {
-                                this.socketByWorld[world].terminate();
-                            }
-
-                            this.socketByWorld[world] = socket;
-
-                            this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                            this.initializeWorld(world, socket);
 
                             // console.error('[Friends]: Received IGNORELIST_ADD before WORLD_CONNECT');
                             // return;
@@ -274,13 +240,7 @@ export class FriendServer {
                         if (world === null) {
                             world = message.world as number;
 
-                            if (this.socketByWorld[world]) {
-                                this.socketByWorld[world].terminate();
-                            }
-
-                            this.socketByWorld[world] = socket;
-
-                            this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                            this.initializeWorld(world, socket);
 
                             // console.error('[Friends]: Received IGNORELIST_DEL before WORLD_CONNECT');
                             // return;
@@ -297,13 +257,7 @@ export class FriendServer {
                         if (world === null) {
                             world = message.world as number;
 
-                            if (this.socketByWorld[world]) {
-                                this.socketByWorld[world].terminate();
-                            }
-
-                            this.socketByWorld[world] = socket;
-
-                            this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+                            this.initializeWorld(world, socket);
 
                             // console.error('[Friends]: Recieved PRIVATE_MESSAGE before WORLD_CONNECT');
                             // return;
@@ -330,17 +284,12 @@ export class FriendServer {
 
                         await this.sendPrivateMessage(username37, staffLvl, pmId, targetUsername37, chat);
                     } else if (type === FriendsClientOpcodes.PUBLIC_CHAT_LOG) {
-                        const { nodeId, nodeTime, profile, username, coord, chat } = message;
-
-                        const from = await db.selectFrom('account').selectAll().where('username', '=', username).executeTakeFirstOrThrow();
+                        const { nodeTime, session_uuid, coord, chat } = message;
 
                         await db
                             .insertInto('public_chat')
                             .values({
-                                account_id: from.id,
-                                profile,
-                                world: nodeId,
-
+                                session_uuid,
                                 timestamp: toDbDate(nodeTime),
                                 coord,
                                 message: chat
@@ -460,32 +409,37 @@ export class FriendServer {
 
     async start() {}
 
+    private async initializeWorld(world: number, socket: WebSocket) {
+        if (this.socketByWorld[world]) {
+            this.socketByWorld[world].terminate();
+        }
+
+        this.socketByWorld[world] = socket;
+        this.repository.initializeWorld(world, WORLD_PLAYER_LIMIT);
+    }
+
     private async sendFriendsListToPlayer(username37: bigint, socket: WebSocket) {
         const playerFriends = await this.repository.getFriends(username37);
 
-        if (playerFriends.length > 0) {
-            socket.send(
-                JSON.stringify({
-                    type: FriendsServerOpcodes.UPDATE_FRIENDLIST,
-                    username37: username37.toString(),
-                    friends: playerFriends.map(f => [f[0], f[1].toString()])
-                })
-            );
-        }
+        socket.send(
+            JSON.stringify({
+                type: FriendsServerOpcodes.UPDATE_FRIENDLIST,
+                username37: username37.toString(),
+                friends: playerFriends.map(f => [f[0], f[1].toString()])
+            })
+        );
     }
 
     private async sendIgnoreListToPlayer(username37: bigint, socket: WebSocket) {
         const playerIgnores = await this.repository.getIgnores(username37);
 
-        if (playerIgnores.length > 0) {
-            socket.send(
-                JSON.stringify({
-                    type: FriendsServerOpcodes.UPDATE_IGNORELIST,
-                    username37: username37.toString(),
-                    ignored: playerIgnores.map(i => i.toString())
-                })
-            );
-        }
+        socket.send(
+            JSON.stringify({
+                type: FriendsServerOpcodes.UPDATE_IGNORELIST,
+                username37: username37.toString(),
+                ignored: playerIgnores.map(i => i.toString())
+            })
+        );
     }
 
     private async broadcastWorldToFollowers(username37: bigint) {
@@ -545,11 +499,13 @@ export class FriendServer {
 
 export class FriendClient extends InternalClient {
     nodeId: number = 0;
+    profile: string;
 
     constructor(nodeId: number) {
         super(Environment.FRIEND_HOST, Environment.FRIEND_PORT);
 
         this.nodeId = nodeId;
+        this.profile = Environment.NODE_PROFILE;
     }
 
     public async worldConnect() {
@@ -562,7 +518,8 @@ export class FriendClient extends InternalClient {
         this.ws.send(
             JSON.stringify({
                 type: FriendsClientOpcodes.WORLD_CONNECT,
-                world: this.nodeId
+                world: this.nodeId,
+                profile: this.profile
             })
         );
     }
@@ -697,8 +654,8 @@ export class FriendClient extends InternalClient {
             JSON.stringify({
                 type: FriendsClientOpcodes.PRIVATE_MESSAGE,
                 world: this.nodeId,
+                profile: this.profile,
                 nodeTime: Date.now(),
-                profile: Environment.NODE_PROFILE,
                 username37: toBase37(username).toString(),
                 targetUsername37: target.toString(),
                 staffLvl,
@@ -709,7 +666,7 @@ export class FriendClient extends InternalClient {
         );
     }
 
-    async publicMessage(username: string, coord: number, chat: string) {
+    async publicMessage(session_uuid: string, coord: number, chat: string) {
         await this.connect();
 
         if (!this.ws || !this.wsr || !this.wsr.checkIfWsLive()) {
@@ -720,9 +677,9 @@ export class FriendClient extends InternalClient {
             JSON.stringify({
                 type: FriendsClientOpcodes.PUBLIC_CHAT_LOG,
                 nodeId: this.nodeId,
+                profile: this.profile,
                 nodeTime: Date.now(),
-                profile: Environment.NODE_PROFILE,
-                username,
+                session_uuid,
                 coord,
                 chat
             })

@@ -3,7 +3,7 @@ import { basename } from 'path';
 
 import Environment from '#/util/Environment.js';
 import { printFatalError, printInfo } from '#/util/Logger.js';
-import { loadDir } from '#/util/Parse.js';
+import { loadDir } from '#tools/pack/Parse.js';
 
 let allObjs: {
     id: number;
@@ -23,8 +23,7 @@ if (args.length !== 1) {
 
 const objList = fs
     .readFileSync(args[0], 'ascii')
-    .replace(/\r/g, '')
-    .split('\n')
+    .split(/\r?\n/)
     .slice(1)
     .filter(line => line.length > 0);
 objList.forEach((line, index) => {

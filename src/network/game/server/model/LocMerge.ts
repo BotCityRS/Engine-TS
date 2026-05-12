@@ -1,7 +1,7 @@
 import { CoordGrid } from '#/engine/CoordGrid.js';
-import ZoneMessage from '#/network/game/server/ZoneMessage.js';
+import ServerGameZoneMessage from '#/network/game/server/ServerGameZoneMessage.js';
 
-export default class LocMerge extends ZoneMessage {
+export default class LocMerge extends ServerGameZoneMessage {
     constructor(
         readonly srcX: number,
         readonly srcZ: number,
@@ -10,7 +10,7 @@ export default class LocMerge extends ZoneMessage {
         readonly locId: number,
         readonly startCycle: number,
         readonly endCycle: number,
-        readonly pid: number,
+        readonly playerSlot: number,
         readonly east: number,
         readonly south: number,
         readonly west: number,
