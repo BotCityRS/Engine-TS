@@ -41,6 +41,13 @@ public/loader.jar
 public/runescape*.jar
 public/client/*.js.map
 
+# Web client bundle output (run `bun run build` in webclient/)
+public/client/client.js
+public/client/mapview.js
+public/client/tinymidipcm.wasm
+# Legacy duplicate entry bundle name (if still produced locally)
+public/client/clientwithbot.js
+
 ### Windows ###
 Thumbs.db
 [Dd]esktop.ini

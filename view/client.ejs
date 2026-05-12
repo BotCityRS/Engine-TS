@@ -334,11 +334,11 @@
         import { Client } from './client/client.js';
 
         (() => {
-            new Client(<%= nodeid %>, <%= lowmem %>, <%= members %>, window);
+            new Client(<%= nodeid %>, <%= lowmem %>, <%= members %>);
 
-            window.bot.reloadScripts();
-            
-            window.bot.setScriptChoice();
+            window.bot?.reloadScripts();
+
+            window.bot?.setScriptChoice();
         })();
 
         loadSettings();
