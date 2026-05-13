@@ -100,6 +100,134 @@
             margin: 6px;
         }
 
+        #bot-control {
+            width: min(960px, calc(100% - 24px));
+            margin: 10px auto 0;
+            border: 1px solid #1f5f1f;
+            border-radius: 8px;
+            padding: 12px;
+            box-sizing: border-box;
+            background: #050505;
+            text-align: left;
+        }
+
+        .bot-toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: end;
+            margin-bottom: 10px;
+        }
+
+        .bot-toolbar-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 180px;
+        }
+
+        .bot-toolbar-label {
+            font-size: 11px;
+            color: #80d380;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        #botscripts,
+        #botparams input,
+        #botparams select,
+        #botparams textarea {
+            width: 100%;
+            background: #0d0d0d;
+            color: #d8ffd8;
+            border: 1px solid #296c29;
+            border-radius: 4px;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        #botparams textarea {
+            min-height: 96px;
+            resize: vertical;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 12px;
+        }
+
+        .bot-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .bot-button {
+            background: #0d0d0d;
+            color: #7eff7e;
+            border: 1px solid #2e7a2e;
+            border-radius: 4px;
+            padding: 7px 10px;
+            cursor: pointer;
+        }
+
+        .bot-button:hover {
+            background: #113011;
+        }
+
+        .bot-button-danger {
+            border-color: #8d2f2f;
+            color: #ff9a9a;
+        }
+
+        .bot-button-danger:hover {
+            background: #301111;
+        }
+
+        .bot-script-summary {
+            margin: 0 0 8px 0;
+            color: #9be99b;
+        }
+
+        .bot-description {
+            margin: 0 0 8px;
+            color: #9be99b;
+        }
+
+        .bot-field {
+            margin-bottom: 10px;
+        }
+
+        .bot-label {
+            display: block;
+            margin-bottom: 4px;
+            color: #80d380;
+        }
+
+        .bot-hint {
+            display: block;
+            margin-top: 4px;
+            color: #6ea86e;
+        }
+
+        .bot-checkbox {
+            width: auto !important;
+            transform: scale(1.15);
+            transform-origin: left center;
+            margin-top: 2px;
+        }
+
+        .bot-section {
+            border-top: 1px solid #1f5f1f;
+            padding-top: 10px;
+            margin-top: 10px;
+        }
+
+        .bot-section-title {
+            margin: 0 0 8px;
+            color: #9ff79f;
+            font-size: 13px;
+            font-weight: normal;
+        }
+
     </style>
 
     <script>
@@ -299,11 +427,19 @@
             <a class="green" href="#" id="hide" onclick="hideControls();">Hide controls</a>
         </div>
         <div id="bot-control">
-            <select id="botscripts" name="botscripts" onchange="window.bot.setScriptChoice();">
-            </select> |
-            <a class="green" href="#" id="startBot" onclick="window.bot._injStartScript();">Start Bot</a> |
-            <a class="green" href="#" id="stopBot" onclick="window.bot.stop();">Stop Bot</a> |
-            <a class="green" href="#" id="deleteBot" onclick="window.confirm('Delete this script?') ? window.confirm('Are you sure you want to delete this script?') ? window.bot._injDeleteScript() : {} : {}">Delete Bot</a>
+            <div class="bot-toolbar">
+                <div class="bot-toolbar-item">
+                    <label class="bot-toolbar-label" for="botscripts">Script</label>
+                    <select id="botscripts" name="botscripts" onchange="window.bot.setScriptChoice();">
+                    </select>
+                </div>
+                <div class="bot-actions">
+                    <button class="bot-button" id="startBot" type="button" onclick="window.bot._injStartScript();">Start Bot</button>
+                    <button class="bot-button" id="stopBot" type="button" onclick="window.bot.stop();">Stop Bot</button>
+                    <button class="bot-button bot-button-danger" id="deleteBot" type="button" onclick="window.confirm('Delete this script?') ? window.confirm('Are you sure you want to delete this script?') ? window.bot._injDeleteScript() : {} : {}">Delete Bot</button>
+                </div>
+            </div>
+            <p class="bot-script-summary" id="botScriptSummary"></p>
             <div id="botparams">
 
             </div>
