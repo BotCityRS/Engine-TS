@@ -263,6 +263,29 @@
             gap: 10px;
         }
 
+        #botLogsArea {
+            width: 100%;
+            min-height: 220px;
+            max-height: 420px;
+            resize: vertical;
+            box-sizing: border-box;
+            background: #0d0d0d;
+            color: #d8ffd8;
+            border: 1px solid #296c29;
+            border-radius: 4px;
+            padding: 8px;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 11px;
+            line-height: 1.35;
+        }
+
+        .bot-logs-toolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
     </style>
 
     <script>
@@ -465,6 +488,7 @@
             <div class="bot-tabs">
                 <button class="bot-tab bot-tab-active" id="botTabScript" type="button">Script</button>
                 <button class="bot-tab" id="botTabDebug" type="button">Debug</button>
+                <button class="bot-tab" id="botTabLogs" type="button">Logs</button>
             </div>
             <div id="bot-script-panel" class="bot-panel bot-panel-active">
             <div class="bot-toolbar">
@@ -503,6 +527,13 @@
                         <small class="bot-hint">Nearby world object IDs above walls, scenery, and ground decor.</small>
                     </div>
                 </div>
+            </div>
+            <div id="bot-logs-panel" class="bot-panel">
+                <p class="bot-description">Session-only bot and script diagnostics (cleared on refresh).</p>
+                <div class="bot-logs-toolbar">
+                    <button class="bot-button" id="botLogsClear" type="button">Clear logs</button>
+                </div>
+                <textarea id="botLogsArea" readonly spellcheck="false" aria-label="Bot logs"></textarea>
             </div>
         </div>
         <div id="hide-message" style="display: none;">
