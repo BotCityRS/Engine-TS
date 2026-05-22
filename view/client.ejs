@@ -122,6 +122,7 @@
         .bot-tabs {
             display: flex;
             gap: 8px;
+            flex-wrap: wrap;
             margin-bottom: 10px;
         }
 
@@ -166,6 +167,8 @@
         #botparams input,
         #botparams select,
         #botparams textarea,
+        #bot-cdn-panel input,
+        #bot-cdn-panel select,
         #bot-accounts-panel input,
         #bot-accounts-panel select {
             width: 100%;
@@ -237,6 +240,13 @@
             display: block;
             margin-top: 4px;
             color: #6ea86e;
+        }
+
+        .bot-cdn-source-details {
+            border: 1px solid #1f5f1f;
+            border-radius: 4px;
+            margin-top: 8px;
+            padding: 8px;
         }
 
         .bot-checkbox {
@@ -512,6 +522,7 @@
         <div id="bot-control">
             <div class="bot-tabs">
                 <button class="bot-tab bot-tab-active" id="botTabScript" type="button">Script</button>
+                <button class="bot-tab" id="botTabCdn" type="button">CDN</button>
                 <button class="bot-tab" id="botTabAccounts" type="button">Accounts</button>
                 <button class="bot-tab" id="botTabDebug" type="button" hidden>Debug</button>
                 <button class="bot-tab" id="botTabLogs" type="button">Logs</button>
@@ -540,6 +551,8 @@
             <div id="botparams">
 
             </div>
+            </div>
+            <div id="bot-cdn-panel" class="bot-panel">
             </div>
             <div id="bot-accounts-panel" class="bot-panel">
                 <p class="bot-description">Saved login accounts for this browser. Passwords are encrypted in local storage; selecting an account fills the game login fields.</p>
@@ -626,9 +639,7 @@
         (() => {
             new Client(<%= nodeid %>, <%= lowmem %>, <%= members %>);
 
-            window.bot?.reloadScripts();
-
-            window.bot?.setScriptChoice();
+            void window.bot?.reloadScripts();
         })();
 
         loadSettings();
