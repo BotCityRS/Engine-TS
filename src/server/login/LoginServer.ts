@@ -140,12 +140,39 @@ export default class LoginServer {
         return false;
     }
 
+    async savePlayerFile(profile: string, username: string, raw: Buffer): Promise<Player | null> {
+        try {
+            if (!PlayerLoading.verify(new Packet(raw))) {
+                console.error(username, 'Invalid save file');
+                return null;
+            }
+
+            if (await this.wouldResetSaveFile(raw, profile, username)) {
+                console.error(username, 'Refusing to save player file because it would reset progress');
+                return null;
+            }
+
+            if (!fs.existsSync(`data/players/${profile}`)) {
+                await fsp.mkdir(`data/players/${profile}`, { recursive: true });
+            }
+
+            await fsp.writeFile(`data/players/${profile}/${username}.sav`, raw);
+            return PlayerLoading.load(username, new Packet(raw), null);
+        } catch (err) {
+            console.error(username, 'Failed to process save file', err);
+            return null;
+        }
+    }
+
     constructor() {
         if (Environment.LOGIN_SERVER && !Environment.EASY_STARTUP) {
             startManagementWeb();
         }
 
         InvType.load('data/pack');
+        if (InvType.count === 0) {
+            throw new Error('Login server cannot start without data/pack/server/inv.dat. Run the pack build or mount content before starting login.');
+        }
 
         this.server = new WebSocketServer({ port: Environment.LOGIN_PORT, host: '0.0.0.0' }, () => {
             printInfo(`Login server listening on port ${Environment.LOGIN_PORT}`);
@@ -425,15 +452,7 @@ export default class LoginServer {
                         const { replyTo, username, save } = msg;
 
                         const raw = Buffer.from(save, 'base64');
-                        if (PlayerLoading.verify(new Packet(raw)) && !(await this.wouldResetSaveFile(raw, profile, username))) {
-                            if (!fs.existsSync(`data/players/${profile}`)) {
-                                await fsp.mkdir(`data/players/${profile}`, { recursive: true });
-                            }
-
-                            await fsp.writeFile(`data/players/${profile}/${username}.sav`, raw);
-                        } else {
-                            console.error(username, 'Invalid save file');
-                        }
+                        const player = await this.savePlayerFile(profile, username, raw);
 
                         const account = await db.selectFrom('account')
                             .leftJoin('account_login', join => join
@@ -465,20 +484,14 @@ export default class LoginServer {
                             })
                         );
 
-                        await updateHiscores(account, PlayerLoading.load(username, new Packet(raw), null), profile);
+                        if (player) {
+                            await updateHiscores(account, player, profile);
+                        }
                     } else if (type === 'player_autosave') {
                         const { username, save } = msg;
 
                         const raw = Buffer.from(save, 'base64');
-                        if (PlayerLoading.verify(new Packet(raw)) && !(await this.wouldResetSaveFile(raw, profile, username))) {
-                            if (!fs.existsSync(`data/players/${profile}`)) {
-                                await fsp.mkdir(`data/players/${profile}`, { recursive: true });
-                            }
-
-                            await fsp.writeFile(`data/players/${profile}/${username}.sav`, raw);
-                        } else {
-                            console.error(username, 'Invalid save file');
-                        }
+                        await this.savePlayerFile(profile, username, raw);
                     } else if (type === 'player_force_logout') {
                         const { username } = msg;
 

@@ -25,6 +25,10 @@ const ServerOps: CommandHandlers = {
         state.pushInt(Environment.NODE_PRODUCTION ? 1 : 0);
     },
 
+    [ScriptOpcode.SKIPPABLE_TUTORIAL]: state => {
+        state.pushInt(Environment.SKIPPABLE_TUTORIAL ? 1 : 0);
+    },
+
     [ScriptOpcode.MAP_PLAYERCOUNT]: state => {
         const [c1, c2] = state.popInts(2);
 
